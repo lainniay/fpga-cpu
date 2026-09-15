@@ -1,0 +1,23 @@
+.DS_Store
+
+# Course reference material (videos/PDFs/zips, ~826MB, not source code).
+docs/
+
+# Selected test images are copied from for_test_obj/.
+cdp_ede_local-master/mycpu_env/func/obj/
+
+# Icarus Verilog output and traces.
+cdp_ede_local-master/mycpu_env/gettrace/gettrace.sim/
+cdp_ede_local-master/mycpu_env/gettrace/golden_trace.txt
+cdp_ede_local-master/mycpu_env/soc_verify/*/testbench/project/
+
+# Vivado generated state and runs.
+**/.Xil/
+**/*.jou
+**/*.log
+**/*.str
+**/*.runs/
+**/*.cache/
+**/*.gen/
+**/*.hw/
+**/*.ip_user_files/

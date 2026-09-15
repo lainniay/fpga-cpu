@@ -1,0 +1,6 @@
+--indentation_spaces=4
+--column_limit=100
+--wrap_end_else_clauses
+--port_declarations_alignment=align
+--named_port_alignment=align
+--formal_parameters_alignment=align

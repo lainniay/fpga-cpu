@@ -1,0 +1,188 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "LoongArch: Run selected test",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "run",
+        "TEST=${input:testCase}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "detail": "切换测试镜像，重新生成 golden trace，并仿真自己的 CPU"
+    },
+    {
+      "label": "LoongArch: Select test images",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "select-test",
+        "TEST=${input:testCase}"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "只切换 func/obj 下的测试镜像"
+    },
+    {
+      "label": "LoongArch: Generate golden trace",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "golden"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "使用参考 CPU 生成 golden_trace.txt"
+    },
+    {
+      "label": "LoongArch: Simulate CPU",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "sim"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      },
+      "detail": "使用现有测试镜像和 golden trace 仿真自己的 CPU"
+    },
+    {
+      "label": "LoongArch: Open waveform",
+      "type": "process",
+      "command": "code",
+      "args": [
+        "--reuse-window",
+        "${workspaceFolder}/cdp_ede_local-master/mycpu_env/soc_verify/soc_bram/testbench/project/loongson.sim/sim_1/behav/iverilog/dump.vcd"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "在 VaporView 中打开最近一次仿真的 dump.vcd"
+    },
+    {
+      "label": "LoongArch: Verilator lint",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "lint"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "对 myCPU RTL 运行 Verilator 静态检查"
+    },
+    {
+      "label": "LoongArch: Yosys synthesis check",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "synth-check"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "group": "build",
+      "problemMatcher": [],
+      "detail": "用 Yosys 检查顶层层次和可综合性"
+    },
+    {
+      "label": "LoongArch: Check RTL",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "LoongArch: Verilator lint",
+        "LoongArch: Yosys synthesis check"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "detail": "依次运行 Verilator 与 Yosys"
+    },
+    {
+      "label": "LoongArch: Format RTL (Verible)",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "fmt"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "用 Verible 按 .verible-format 就地格式化 myCPU RTL"
+    },
+    {
+      "label": "LoongArch: Verify toolchain",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "tools"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "检查 iverilog、vvp、verilator 和 yosys"
+    },
+    {
+      "label": "LoongArch: Clean generated files",
+      "type": "process",
+      "command": "make",
+      "args": [
+        "clean"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": [],
+      "detail": "删除仿真产物、VCD 和 golden trace"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "testCase",
+      "type": "pickString",
+      "description": "选择阶段测试",
+      "options": [
+        "ex1",
+        "ex2",
+        "ex3",
+        "ex4",
+        "ex5",
+        "ex6",
+        "ex7",
+        "ex8",
+        "ex9"
+      ],
+      "default": "ex1"
+    }
+  ]
+}

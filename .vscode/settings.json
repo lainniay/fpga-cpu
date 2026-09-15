@@ -1,0 +1,65 @@
+{
+  "files.associations": {
+    "*.v": "verilog",
+    "*.vh": "verilog",
+    "*.sv": "systemverilog",
+    "*.svh": "systemverilog"
+  },
+  "search.exclude": {
+    "**/for_test_obj/**/*.mif": true,
+    "**/mycpu_env/func/obj/**": true,
+    "**/gettrace.sim/**": true,
+    "**/project/loongson.sim/**": true,
+    "**/project/loongson.cache/**": true
+  },
+  "files.watcherExclude": {
+    "**/mycpu_env/func/obj/**": true,
+    "**/gettrace.sim/**": true,
+    "**/testbench/project/**": true
+  },
+  "verilog.ctags.enabled": false,
+  "verilog.linting.linter": "verilator",
+  "verilog.linting.verilator.arguments": "-Wall -Wno-fatal -Wno-DECLFILENAME -Wno-MULTITOP -Wno-UNUSEDSIGNAL",
+  "verilog.linting.verilator.includePath": [
+    "cdp_ede_local-master/mycpu_env/myCPU"
+  ],
+  "verilog.linting.verilator.runAtFileLocation": false,
+  "verilog.waveform.viewer": "vaporview",
+  "verilog.waveform.vaporview.loadAll": false,
+  "verilog.waveform.vaporview.maxSignals": 64,
+
+  // --- Verible 语言服务器（官方扩展，提供格式化 + 跳转定义 / 大纲 / 悬停）---
+  // 用绝对路径：macOS 上从 Dock/Finder 启动的 VS Code 不继承 shell 的 PATH，
+  // 找不到 /opt/homebrew/bin 下的 verible-verilog-ls。
+  "verible.path": "/opt/homebrew/bin/verible-verilog-ls",
+  "verible.arguments": [
+    // 与命令行 / make fmt 共用同一份风格配置（缺文件会在输出面板大声报错）
+    "--flagfile=/Users/lainniay/Code/FPGA/.verible-format",
+    // Verible 的 lint 关掉，避免和上面 verilator 的报错重叠刷屏。
+    // 想启用 Verible lint：把这行删掉或改成 "--ruleset=default"
+    "--ruleset=none"
+  ],
+
+  // --- Verible 格式化器（本项目的默认格式化工具）---
+  "[verilog]": {
+    "editor.defaultFormatter": "chipsalliance.verible",
+    "editor.formatOnSave": true
+  },
+  "[systemverilog]": {
+    "editor.defaultFormatter": "chipsalliance.verible",
+    "editor.formatOnSave": true
+  },
+
+  // --- 备选：改用 mshr-h.veriloghdl 内置的 verible 命令行格式化器 ---
+  // 把上面两个 editor.defaultFormatter 换成 "mshr-h.veriloghdl" 即可生效。
+  // 注意它默认给 verilog 用的 "verilog-format" 本机没装，必须改成 verible。
+  "verilog.formatting.verilogHDL.formatter": "verible-verilog-format",
+  "verilog.formatting.systemVerilog.formatter": "verible-verilog-format",
+  "verilog.formatting.veribleVerilogFormatter.path": "/opt/homebrew/bin/verible-verilog-format",
+  "verilog.formatting.veribleVerilogFormatter.arguments": "--flagfile=/Users/lainniay/Code/FPGA/.verible-format",
+
+  "workbench.editorAssociations": {
+    "*.vcd": "vaporview.waveformViewer"
+  },
+  "makefile.configureOnOpen": false
+}
