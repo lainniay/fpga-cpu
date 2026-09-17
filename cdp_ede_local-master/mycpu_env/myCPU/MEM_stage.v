@@ -17,11 +17,16 @@ module MEM_stage (
     input  wire [`ES_TO_MS_BUS_WD-1:0] es_to_ms_bus,
     output wire                        ms_allowin,
 
-    input wire [31:0] data_sram_rdata
+    input wire [31:0] data_sram_rdata,
+
+    // NOTE: ex2 
+    output wire [4:0] ms_dest,
+    output wire       ms_gr_we,
+    output wire       ms_valid
 );
 
     // 基本握手协议
-    reg  ms_valid;
+    reg  ms_valid_r;
     wire ms_ready_go;
     assign ms_ready_go    = 1'b1;
     assign ms_allowin     = !ms_valid || (ms_ready_go && ws_allowin);
@@ -57,15 +62,20 @@ module MEM_stage (
 
     always @(posedge clk) begin
         if (reset) begin
-            ms_valid <= 1'b0;
+            ms_valid_r <= 1'b0;
         end
         else if (ms_allowin) begin
-            ms_valid <= es_to_ms_valid;
+            ms_valid_r <= es_to_ms_valid;
         end
         if (es_to_ms_valid && ms_allowin) begin
             es_to_ms_bus_r <= es_to_ms_bus;
         end
     end
+
+    //NOTE: ex2
+    assign ms_valid = ms_valid_r;
+    assign ms_gr_we = gr_we;
+    assign ms_dest  = dest;
 
 endmodule
 

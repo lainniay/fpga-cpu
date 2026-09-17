@@ -21,11 +21,16 @@ module EXE_stage (
     output wire        data_sram_en,
     output wire [ 3:0] data_sram_we,
     output wire [31:0] data_sram_addr,
-    output wire [31:0] data_sram_wdata
+    output wire [31:0] data_sram_wdata,
+
+    // NOTE: Ex2: 
+    output wire [4:0] es_dest,
+    output wire       es_gr_we,
+    output wire       es_valid
 );
 
     // NOTE: EXE 阶段握手信号
-    reg  es_valid;
+    reg  es_valid_r;  // ex2: 
     wire es_ready_go;
     // todo ex1: EXE 中所有指令一拍完成
     assign es_ready_go    = 1'b1;
@@ -103,15 +108,20 @@ module EXE_stage (
 
     always @(posedge clk) begin
         if (reset) begin
-            es_valid <= 1'b0;
+            es_valid_r <= 1'b0;
         end
         else if (es_allowin) begin
-            es_valid <= ds_to_es_valid;
+            es_valid_r <= ds_to_es_valid;
         end
         if (ds_to_es_valid && es_allowin) begin
             ds_to_es_bus_r <= ds_to_es_bus;
         end
     end
+
+    // NOTE: Ex2
+    assign es_valid = es_valid_r;
+    assign es_dest  = dest;
+    assign es_gr_we = gr_we;
 
 endmodule
 

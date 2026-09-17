@@ -21,14 +21,27 @@ module ID_stage (
     // NOTE: 跳转指令, ID -> IF
     output wire [      `BR_BUS_WD-1:0] br_bus,
     // NOTE: WB -> ID, 这是由于 Regfile 放在 ID, WB 写回需要交给 ID
-    input  wire [`WS_TO_RF_BUS_WD-1:0] ws_to_rf_bus
+    input  wire [`WS_TO_RF_BUS_WD-1:0] ws_to_rf_bus,
+
+    // NOTE: ex2
+    input wire [4:0] es_dest,
+    input wire       es_gr_we,
+    input wire       es_valid,
+
+    input wire [4:0] ms_dest,
+    input wire       ms_gr_we,
+    input wire       ms_valid
 );
+
+    wire es_conflict;
+    wire ms_conflict;
+    wire ws_conflict;
 
     // NOTE: ID 阶段握手信号
     reg  ds_valid;
     wire ds_ready_go;
-    // todo ex1 只要求一次
-    assign ds_ready_go    = 1'b1;
+    // NOTE: ex2
+    assign ds_ready_go    = !(es_conflict | ms_conflict | ws_conflict);
     assign ds_allowin     = !ds_valid || (ds_ready_go && es_allowin);
     assign ds_to_es_valid = ds_valid && ds_ready_go;
 
@@ -94,6 +107,11 @@ module ID_stage (
     wire        br_taken;
     // NOTE: 跳转类指令的目标, 包含 jirl
     wire [31:0] br_target;
+
+    // NOTE: ex2 
+    wire        src1_is_rj;
+    wire        src2_is_rk;
+    wire        src2_is_rkd;
 
     // NOTE: 指令字段拆解
     wire [ 5:0] op_31_26;
@@ -246,6 +264,10 @@ module ID_stage (
     // 5'd1 是 r1 寄存器编号
     assign dest = dst_is_r1 ? 5'd1 : rd;
 
+    // NOTE: ex2
+    assign src1_is_rj = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor | inst_slli_w | inst_srli_w | inst_srai_w | inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_beq | inst_bne;
+    assign src2_is_rk = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor;
+    assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w;
 
     // NOTE: 寄存器堆
     wire [ 4:0] rf_raddr1;
@@ -271,6 +293,21 @@ module ID_stage (
     );
 
     assign {rf_we, rf_waddr, rf_wdata} = ws_to_rf_bus;
+
+    // NOTE: ex2 相关判断
+    // es_valid 表明 exe 阶段是一条有效的指令, 不是 bubble
+    // es_gr_we 不出 exe 阶段具有 通用寄存器 写使能
+    // es_dest 写的不是 r0, 也就是 0寄存器
+    // src1_is_rj / src2_is_rkd 表示当前的 ID 指令使用的寄存器是不是 rj/rkd
+    assign es_conflict = es_valid && es_gr_we && (es_dest != 5'd0) &&
+                         ((src1_is_rj && es_dest == rf_raddr1) || (src2_is_rkd && es_dest == rf_raddr2));
+
+    assign ms_conflict = ms_valid && ms_gr_we && (ms_dest != 5'd0) &&
+                         ((src1_is_rj && ms_dest == rf_raddr1) || (src2_is_rkd && ms_dest == rf_raddr2));
+
+    // rf_we 本来就是供给 wb 的写控制信号, rf_we = ws_valid && gr_we
+    assign ws_conflict = rf_we && (rf_waddr != 5'd0) &&
+                         ((src1_is_rj && rf_waddr == rf_raddr1) || (src2_is_rkd && rf_waddr == rf_raddr2));
 
     assign rj_value = rf_rdata1;
     assign rkd_value = rf_rdata2;
