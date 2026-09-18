@@ -116,6 +116,11 @@ module ID_stage (
     // NOTE: LoongArch 的两个操作数, 第一个通常来自 rj, 而第二个可能来自 rk 或 rd
     // Reg[rj] 和 Reg[rd] 是否相等
     wire        rj_eq_rd;
+    // NOTE: ex5 分支比较结果
+    wire        rj_lt_rd;
+    wire        rj_ge_rd;
+    wire        rj_ltu_rd;
+    wire        rj_geu_rd;
     // Reg[rj] 的值
     wire [31:0] rj_value;
     // Reg[rk] 或者是 Reg[rd] 的值
@@ -219,6 +224,11 @@ module ID_stage (
     wire inst_srl_w;
     wire inst_sra_w;
     wire inst_pcaddu12i;
+    // NOTE: ex5
+    wire inst_blt;
+    wire inst_bge;
+    wire inst_bltu;
+    wire inst_bgeu;
 
     assign inst_add_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
     assign inst_sub_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
@@ -250,6 +260,11 @@ module ID_stage (
     assign inst_srl_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h0f];
     assign inst_sra_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h10];
     assign inst_pcaddu12i = op_31_26_d[6'h07] & ~ds_inst[25];
+    // NOTE: ex5
+    assign inst_blt = op_31_26_d[6'h18];
+    assign inst_bge = op_31_26_d[6'h19];
+    assign inst_bltu = op_31_26_d[6'h1a];
+    assign inst_bgeu = op_31_26_d[6'h1b];
 
     // ex4
     assign alu_op[0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_bl | inst_pcaddu12i;
@@ -285,7 +300,8 @@ module ID_stage (
     assign need_ui5 = inst_slli_w | inst_srli_w | inst_srai_w;
     // ex4
     assign need_si12 = inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui;
-    assign need_si16 = inst_jirl | inst_beq | inst_bne;
+    // ex5
+    assign need_si16 = inst_jirl | inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;
     // ex4
     assign need_si20 = inst_lu12i_w | inst_pcaddu12i;
     assign need_si26 = inst_b | inst_bl;
@@ -304,7 +320,8 @@ module ID_stage (
 
     assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};
 
-    assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w;
+    // ex5
+    assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w | inst_blt | inst_bge | inst_bltu | inst_bgeu;
     // ex4
     assign src1_is_pc = inst_jirl | inst_bl | inst_pcaddu12i;
 
@@ -328,7 +345,9 @@ module ID_stage (
     assign res_from_mem = inst_ld_w;
     assign load_op = inst_ld_w;
     assign dst_is_r1 = inst_bl;
-    assign gr_we = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b;
+    // ex5
+    assign gr_we = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b
+                 & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu;
     assign mem_we = inst_st_w;
     // 5'd1 是 r1 寄存器编号
     assign dest = dst_is_r1 ? 5'd1 : rd;
@@ -339,12 +358,15 @@ module ID_stage (
                         inst_slli_w | inst_srli_w | inst_srai_w |
                         inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_beq | inst_bne |
                         inst_slti | inst_sltui | inst_andi | inst_ori | inst_xori |
-                        inst_sll_w | inst_srl_w | inst_sra_w;
+                        inst_sll_w | inst_srl_w | inst_sra_w |
+                        inst_blt | inst_bge | inst_bltu | inst_bgeu;
 
     // ex4
     assign src2_is_rk  = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor |
                          inst_sll_w | inst_srl_w | inst_sra_w;
-    assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w;
+    // ex5
+    assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w
+                         | inst_blt | inst_bge | inst_bltu | inst_bgeu;
 
     // NOTE: 寄存器堆
     wire [ 4:0] rf_raddr1;
@@ -377,14 +399,26 @@ module ID_stage (
 
     // NOTE: 解析跳转指令
     assign rj_eq_rd = (rj_value == rkd_value);
+    // NOTE: ex5, 没有使用 ALU, 直接在 ID 内部完成计算, 否则需要先进入 EXE, 在回传
+    assign rj_lt_rd = ($signed(rj_value) < $signed(rkd_value));
+    assign rj_ge_rd = ($signed(rj_value) >= $signed(rkd_value));
+    assign rj_ltu_rd = (rj_value < rkd_value);
+    assign rj_geu_rd = (rj_value >= rkd_value);
+
     assign br_taken  = (   inst_beq  &&  rj_eq_rd
                         || inst_bne  && !rj_eq_rd
+                        || inst_blt  &&  rj_lt_rd
+                        || inst_bge  &&  rj_ge_rd
+                        || inst_bltu &&  rj_ltu_rd
+                        || inst_bgeu &&  rj_geu_rd
                         || inst_jirl
                         || inst_bl
                         || inst_b
                        ) && ds_valid;
-    assign br_target = (inst_beq || inst_bne || inst_bl || inst_b) ? (ds_pc + br_offs) :
-        /*inst_jirl*/ (rj_value + jirl_offs);
+    // ex5
+    assign br_target = (inst_beq || inst_bne || inst_blt || inst_bge
+                        || inst_bltu || inst_bgeu || inst_bl || inst_b)
+                       ? (ds_pc + br_offs) : /*inst_jirl*/ (rj_value + jirl_offs);
 
     assign br_bus = {br_taken, br_target};
 

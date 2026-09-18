@@ -32,4 +32,65 @@ IF -> ID -> EXE -> MEM -> WB
 
 # Ex4
 
-加上新的运算指令.
+加上新的运算指令: slti, sltui, andi, ori, xori, sll.w, srl.w, sra.w, pcaddu12i
+
+| 指令 | 大致含义 | 核心操作 |
+|---|---|---|
+| `slti` | 有符号“小于立即数”比较 | `signed(rj) < signed(imm)` |
+| `sltui` | 无符号“小于立即数”比较 | `unsigned(rj) < unsigned(signext(imm))` |
+| `andi` | 按位与立即数 | `rj & imm` |
+| `ori` | 按位或立即数 | `rj \| imm` |
+| `xori` | 按位异或立即数 | `rj ^ imm` |
+| `sll.w` | 32 位逻辑左移 | `rj[31:0] << rk[4:0]` |
+| `srl.w` | 32 位逻辑右移 | `rj[31:0] >> rk[4:0]`，补 0 |
+| `sra.w` | 32 位算术右移 | 按有符号 32 位右移 |
+| `pcaddu12i` | `PC + (imm << 12)` | PC 相对地址生成 |
+
+
+```c
+slti:
+    rd = ((signed)rj < sign_extend(si12)) ? 1 : 0;
+
+sltui:
+    rd = ((unsigned)rj <
+          (unsigned)sign_extend(si12)) ? 1 : 0;
+
+andi:
+    rd = rj & zero_extend(ui12);
+
+ori:
+    rd = rj | zero_extend(ui12);
+
+xori:
+    rd = rj ^ zero_extend(ui12);
+
+
+sll.w:
+    rd = sign_extend_32(
+        (uint32_t)rj << (rk & 31)
+    );
+
+srl.w:
+    rd = sign_extend_32(
+        (uint32_t)rj >> (rk & 31)
+    );
+
+sra.w:
+    rd = sign_extend_32(
+        (int32_t)rj >> (rk & 31)
+    );
+
+pcaddu12i:
+    rd = PC + sign_extend(si20 << 12);
+```
+
+# Ex5
+
+增加跳转指令: blt、bge、bltu、bgeu:
+
+| 指令 | 含义 | 比较方式 |
+|---|---|---|
+| `blt` | Branch if Less Than | 有符号 `<` |
+| `bge` | Branch if Greater or Equal | 有符号 `>=` |
+| `bltu` | Branch if Less Than Unsigned | 无符号 `<` |
+| `bgeu` | Branch if Greater or Equal Unsigned | 无符号 `>=` |
