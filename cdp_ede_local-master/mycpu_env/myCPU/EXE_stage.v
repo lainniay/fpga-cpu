@@ -26,7 +26,11 @@ module EXE_stage (
     // NOTE: Ex2: 
     output wire [4:0] es_dest,
     output wire       es_gr_we,
-    output wire       es_valid
+    output wire       es_valid,
+
+    // NOTE: Ex3
+    output wire [31:0] es_fwd_data,
+    output wire        es_res_from_mem
 );
 
     // NOTE: EXE 阶段握手信号
@@ -120,8 +124,12 @@ module EXE_stage (
 
     // NOTE: Ex2
     assign es_valid = es_valid_r;
-    assign es_dest  = dest;
+    assign es_dest = dest;
     assign es_gr_we = gr_we;
+
+    // NOTE: Ex3, 将 exe 计算的输出导出去
+    assign es_fwd_data = es_alu_result;
+    assign es_res_from_mem = res_from_mem;
 
 endmodule
 

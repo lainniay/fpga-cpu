@@ -53,6 +53,10 @@ module mycpu_top (
     wire                        ms_gr_we;
     wire                        ms_valid;
 
+    wire [                31:0] es_fwd_data;
+    wire                        es_res_from_mem;
+    wire [                31:0] ms_fwd_data;
+
     IF_stage u_if_stage (
         .clk            (clk),
         .reset          (reset),
@@ -84,7 +88,11 @@ module mycpu_top (
         .es_valid      (es_valid),
         .ms_dest       (ms_dest),
         .ms_gr_we      (ms_gr_we),
-        .ms_valid      (ms_valid)
+        .ms_valid      (ms_valid),
+
+        .es_res_from_mem(es_res_from_mem),
+        .es_fwd_data   (es_fwd_data),
+        .ms_fwd_data   (ms_fwd_data)
     );
 
     EXE_stage u_exe_stage (
@@ -103,7 +111,10 @@ module mycpu_top (
         // NOTE: ex2
         .es_dest        (es_dest),
         .es_gr_we       (es_gr_we),
-        .es_valid       (es_valid)
+        .es_valid       (es_valid),
+
+        .es_fwd_data    (es_fwd_data),
+        .es_res_from_mem(es_res_from_mem)
     );
 
     MEM_stage u_mem_stage (
@@ -119,7 +130,9 @@ module mycpu_top (
         // NOTE: ex2
         .ms_dest        (ms_dest),
         .ms_gr_we       (ms_gr_we),
-        .ms_valid       (ms_valid)
+        .ms_valid       (ms_valid),
+
+        .ms_fwd_data    (ms_fwd_data)
     );
 
     WB_stage u_wb_stage (

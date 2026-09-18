@@ -22,7 +22,10 @@ module MEM_stage (
     // NOTE: ex2 
     output wire [4:0] ms_dest,
     output wire       ms_gr_we,
-    output wire       ms_valid
+    output wire       ms_valid,
+
+    // NOTE: ex3
+    output wire [31:0] ms_fwd_data
 );
 
     // 基本握手协议
@@ -72,10 +75,13 @@ module MEM_stage (
         end
     end
 
-    //NOTE: ex2
+    // NOTE: ex2
     assign ms_valid = ms_valid_r;
     assign ms_gr_we = gr_we;
-    assign ms_dest  = dest;
+    assign ms_dest = dest;
+
+    // NOTE: ex3
+    assign ms_fwd_data = ms_final_result;
 
 endmodule
 

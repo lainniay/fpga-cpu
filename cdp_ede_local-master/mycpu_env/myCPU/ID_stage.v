@@ -30,18 +30,41 @@ module ID_stage (
 
     input wire [4:0] ms_dest,
     input wire       ms_gr_we,
-    input wire       ms_valid
+    input wire       ms_valid,
+
+    // NOTE: ex3
+    input wire        es_res_from_mem,
+    input wire [31:0] es_fwd_data,
+    input wire [31:0] ms_fwd_data
 );
 
+    // NOTE: ex2
     wire es_conflict;
     wire ms_conflict;
     wire ws_conflict;
 
+    // NOTE: ex3
+    wire es_fwd_en1;
+    wire ms_fwd_en1;
+    wire ws_fwd_en1;
+    wire es_fwd_en2;
+    wire ms_fwd_en2;
+    wire ws_fwd_en2;
+
+    wire [31:0] rf_rdata1_fwd;
+    wire [31:0] rf_rdata2_fwd;
+
     // NOTE: ID 阶段握手信号
-    reg  ds_valid;
+    reg ds_valid;
+
     wire ds_ready_go;
     // NOTE: ex2
-    assign ds_ready_go    = !(es_conflict | ms_conflict | ws_conflict);
+    // assign ds_ready_go    = !(es_conflict | ms_conflict | ws_conflict);
+
+    // NOTE: ex3
+    wire load_use;
+    assign ds_ready_go    = !load_use;
+
     assign ds_allowin     = !ds_valid || (ds_ready_go && es_allowin);
     assign ds_to_es_valid = ds_valid && ds_ready_go;
 
@@ -294,23 +317,9 @@ module ID_stage (
 
     assign {rf_we, rf_waddr, rf_wdata} = ws_to_rf_bus;
 
-    // NOTE: ex2 相关判断
-    // es_valid 表明 exe 阶段是一条有效的指令, 不是 bubble
-    // es_gr_we 不出 exe 阶段具有 通用寄存器 写使能
-    // es_dest 写的不是 r0, 也就是 0寄存器
-    // src1_is_rj / src2_is_rkd 表示当前的 ID 指令使用的寄存器是不是 rj/rkd
-    assign es_conflict = es_valid && es_gr_we && (es_dest != 5'd0) &&
-                         ((src1_is_rj && es_dest == rf_raddr1) || (src2_is_rkd && es_dest == rf_raddr2));
-
-    assign ms_conflict = ms_valid && ms_gr_we && (ms_dest != 5'd0) &&
-                         ((src1_is_rj && ms_dest == rf_raddr1) || (src2_is_rkd && ms_dest == rf_raddr2));
-
-    // rf_we 本来就是供给 wb 的写控制信号, rf_we = ws_valid && gr_we
-    assign ws_conflict = rf_we && (rf_waddr != 5'd0) &&
-                         ((src1_is_rj && rf_waddr == rf_raddr1) || (src2_is_rkd && rf_waddr == rf_raddr2));
-
-    assign rj_value = rf_rdata1;
-    assign rkd_value = rf_rdata2;
+    // NOTE: ex3
+    assign rj_value = rf_rdata1_fwd;
+    assign rkd_value = rf_rdata2_fwd;
 
     // NOTE: 解析跳转指令
     assign rj_eq_rd = (rj_value == rkd_value);
@@ -343,6 +352,38 @@ module ID_stage (
         res_from_mem
     };  // [0]
 
+    // NOTE: ex2 相关判断
+    // es_valid 表明 exe 阶段是一条有效的指令, 不是 bubble
+    // es_gr_we 不出 exe 阶段具有 通用寄存器 写使能
+    // es_dest 写的不是 r0, 也就是 0寄存器
+    // src1_is_rj / src2_is_rkd 表示 ID 指令是不是真的要使用 regfile, 后面的用于判断写目标是不是 ID 需要读的寄存器
+    // assign es_conflict = es_valid && es_gr_we && (es_dest != 5'd0) &&
+    //                   ((src1_is_rj && es_dest == rf_raddr1) || (src2_is_rkd && es_dest == rf_raddr2));
+
+    // assign ms_conflict = ms_valid && ms_gr_we && (ms_dest != 5'd0) &&
+    //                   ((src1_is_rj && ms_dest == rf_raddr1) || (src2_is_rkd && ms_dest == rf_raddr2));
+
+    // rf_we 本来就是供给 wb 的写控制信号, rf_we = ws_valid && gr_we
+    // assign ws_conflict = rf_we && (rf_waddr != 5'd0) &&
+    //                   ((src1_is_rj && rf_waddr == rf_raddr1) || (src2_is_rkd && rf_waddr == rf_raddr2));
+
+    // NOTE: ex3
+    // ex3 的判断信号和上面的几乎一样, 但是需要注意的是, exe 阶段需要排除 es_res_from_mem, 也就是 load 类指令
+    assign es_fwd_en1 = es_valid && es_gr_we && !es_res_from_mem && (es_dest != 5'd0) && src1_is_rj && (es_dest == rf_raddr1);
+    assign ms_fwd_en1 = ms_valid && ms_gr_we && (ms_dest != 5'd0) && src1_is_rj && (ms_dest == rf_raddr1);
+    assign ws_fwd_en1 = rf_we && (rf_waddr != 5'd0) && src1_is_rj && (rf_waddr == rf_raddr1);
+
+    assign es_fwd_en2 = es_valid && es_gr_we && !es_res_from_mem && (es_dest != 5'd0) && src2_is_rkd && (es_dest == rf_raddr2);
+    assign ms_fwd_en2 = ms_valid && ms_gr_we && (ms_dest != 5'd0) && src2_is_rkd && (ms_dest == rf_raddr2);
+    assign ws_fwd_en2 = rf_we && (rf_waddr != 5'd0) && src2_is_rkd && (rf_waddr == rf_raddr2);
+
+    // NOTE: ex3 前递优先级 EXE > MEM > WB
+    assign rf_rdata1_fwd = es_fwd_en1 ? es_fwd_data : ms_fwd_en1 ? ms_fwd_data : ws_fwd_en1 ? rf_wdata : rf_rdata1;
+    assign rf_rdata2_fwd = es_fwd_en2 ? es_fwd_data : ms_fwd_en2 ? ms_fwd_data : ws_fwd_en2 ? rf_wdata : rf_rdata2;
+
+    assign load_use = es_valid && es_res_from_mem && es_gr_we && (es_dest != 5'd0)  && ((src1_is_rj  && es_dest == rf_raddr1)
+                 || (src2_is_rkd && es_dest == rf_raddr2));
+
 endmodule
 
-`endif  // ID_STAGE_V
+`endif  // ID_STAGE_V   

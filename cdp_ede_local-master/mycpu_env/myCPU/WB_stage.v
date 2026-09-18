@@ -20,7 +20,7 @@ module WB_stage (
     output wire [ 4:0] ws_dest,
     output wire [31:0] ws_final_result
 );
-
+    
     assign ws_allowin = 1'b1;
 
     reg                         ws_valid;
