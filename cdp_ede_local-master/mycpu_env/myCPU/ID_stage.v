@@ -39,9 +39,9 @@ module ID_stage (
 );
 
     // NOTE: ex2
-    wire es_conflict;
-    wire ms_conflict;
-    wire ws_conflict;
+    // wire es_conflict;
+    // wire ms_conflict;
+    // wire ws_conflict;
 
     // NOTE: ex3
     wire es_fwd_en1;
