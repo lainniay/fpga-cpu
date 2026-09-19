@@ -25,7 +25,10 @@ module MEM_stage (
     output wire       ms_valid,
 
     // NOTE: ex3
-    output wire [31:0] ms_fwd_data
+    output wire [31:0] ms_fwd_data,
+
+    // NOTE: ex6 timing: 告诉 ID 本级的 MEM 指令是否是 load
+    output wire ms_res_from_mem
 );
 
     // 基本握手协议
@@ -101,7 +104,10 @@ module MEM_stage (
     assign ms_dest = dest;
 
     // NOTE: ex3
-    assign ms_fwd_data = ms_final_result;
+    // NOTE: ex6 timing: 只前递已寄存的 ALU 结果; load 数据要等到 WB 才能前递,
+    //                  否则 data_ram -> 前递 -> ID 分支比较 -> IF 的组合路径过长
+    assign ms_fwd_data     = ms_alu_result;
+    assign ms_res_from_mem = res_from_mem;
 
 endmodule
 

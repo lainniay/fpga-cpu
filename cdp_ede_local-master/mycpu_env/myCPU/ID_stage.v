@@ -35,7 +35,10 @@ module ID_stage (
     // NOTE: ex3
     input wire        es_res_from_mem,
     input wire [31:0] es_fwd_data,
-    input wire [31:0] ms_fwd_data
+    input wire [31:0] ms_fwd_data,
+
+    // NOTE: ex6
+    input wire ms_res_from_mem
 );
 
     // NOTE: ex2
@@ -490,20 +493,24 @@ module ID_stage (
 
     // NOTE: ex3
     // ex3 的判断信号和上面的几乎一样, 但是需要注意的是, exe 阶段需要排除 es_res_from_mem, 也就是 load 类指令
+    // ex6 由于 load 类指令在 mem 阶段回传会导致超过 50MHz 的时间限制, 因此需要加上
     assign es_fwd_en1 = es_valid && es_gr_we && !es_res_from_mem && (es_dest != 5'd0) && src1_is_rj && (es_dest == rf_raddr1);
-    assign ms_fwd_en1 = ms_valid && ms_gr_we && (ms_dest != 5'd0) && src1_is_rj && (ms_dest == rf_raddr1);
+    assign ms_fwd_en1 = ms_valid && ms_gr_we && !ms_res_from_mem && (ms_dest != 5'd0) && src1_is_rj && (ms_dest == rf_raddr1);
     assign ws_fwd_en1 = rf_we && (rf_waddr != 5'd0) && src1_is_rj && (rf_waddr == rf_raddr1);
 
     assign es_fwd_en2 = es_valid && es_gr_we && !es_res_from_mem && (es_dest != 5'd0) && src2_is_rkd && (es_dest == rf_raddr2);
-    assign ms_fwd_en2 = ms_valid && ms_gr_we && (ms_dest != 5'd0) && src2_is_rkd && (ms_dest == rf_raddr2);
+    assign ms_fwd_en2 = ms_valid && ms_gr_we && !ms_res_from_mem && (ms_dest != 5'd0) && src2_is_rkd && (ms_dest == rf_raddr2);
     assign ws_fwd_en2 = rf_we && (rf_waddr != 5'd0) && src2_is_rkd && (rf_waddr == rf_raddr2);
 
     // NOTE: ex3 前递优先级 EXE > MEM > WB
     assign rf_rdata1_fwd = es_fwd_en1 ? es_fwd_data : ms_fwd_en1 ? ms_fwd_data : ws_fwd_en1 ? rf_wdata : rf_rdata1;
     assign rf_rdata2_fwd = es_fwd_en2 ? es_fwd_data : ms_fwd_en2 ? ms_fwd_data : ws_fwd_en2 ? rf_wdata : rf_rdata2;
 
-    assign load_use = es_valid && es_res_from_mem && es_gr_we && (es_dest != 5'd0)  && ((src1_is_rj  && es_dest == rf_raddr1)
-                 || (src2_is_rkd && es_dest == rf_raddr2));
+    // NOTE: ex3 / ex6 
+    assign load_use = (es_valid && es_res_from_mem && es_gr_we && (es_dest != 5'd0)
+                    && ((src1_is_rj && es_dest == rf_raddr1) || (src2_is_rkd && es_dest == rf_raddr2)))
+                   || (ms_valid && ms_res_from_mem && ms_gr_we && (ms_dest != 5'd0)
+                    && ((src1_is_rj && ms_dest == rf_raddr1) || (src2_is_rkd && ms_dest == rf_raddr2)));
 
 endmodule
 

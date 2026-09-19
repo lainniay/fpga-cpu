@@ -56,6 +56,7 @@ module mycpu_top (
     wire [                31:0] es_fwd_data;
     wire                        es_res_from_mem;
     wire [                31:0] ms_fwd_data;
+    wire                        ms_res_from_mem;
 
     IF_stage u_if_stage (
         .clk            (clk),
@@ -92,7 +93,8 @@ module mycpu_top (
 
         .es_res_from_mem(es_res_from_mem),
         .es_fwd_data   (es_fwd_data),
-        .ms_fwd_data   (ms_fwd_data)
+        .ms_fwd_data   (ms_fwd_data),
+        .ms_res_from_mem(ms_res_from_mem)
     );
 
     EXE_stage u_exe_stage (
@@ -132,7 +134,8 @@ module mycpu_top (
         .ms_gr_we       (ms_gr_we),
         .ms_valid       (ms_valid),
 
-        .ms_fwd_data    (ms_fwd_data)
+        .ms_fwd_data    (ms_fwd_data),
+        .ms_res_from_mem(ms_res_from_mem)
     );
 
     WB_stage u_wb_stage (
