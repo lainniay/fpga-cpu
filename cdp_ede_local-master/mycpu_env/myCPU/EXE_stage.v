@@ -44,8 +44,9 @@ module EXE_stage (
     // 存储 ds_to_es_bus 中的瞬间信号
     reg  [`DS_TO_ES_BUS_WD-1:0] ds_to_es_bus_r;
 
-    wire [                11:0] alu_op;  // [151:140]d
-    wire                        load_op;  // [139]
+    wire [                11:0] alu_op;  // [153:142]
+    wire [                 1:0] mem_size;  // [141:140]
+    wire                        mem_sign;  // [139]
     wire                        src1_is_pc;  // [138]
     wire                        src2_is_imm;  // [137]
     wire                        src2_is_4;  // [136]  reserved, imm 中已包含该常数 4
@@ -60,7 +61,8 @@ module EXE_stage (
 
     assign {
         alu_op,
-        load_op,
+        mem_size,
+        mem_sign,
         src1_is_pc,
         src2_is_imm,
         src2_is_4,
@@ -93,21 +95,42 @@ module EXE_stage (
     // 
     assign data_sram_en = es_valid && (res_from_mem | mem_we);
 
-    // todo ex6: ld.b / ld.h / st.b / st.h 需按地址低两位生成字节写使能
-    assign data_sram_we = (es_valid && mem_we) ? 4'hf : 4'h0;
+    // NOTE: ex6 按访存宽度和地址低两位生成字节写使能
+    wire [ 3:0] mem_we_byte;
+    wire [ 3:0] mem_we_half;
+    wire [ 3:0] mem_we_mask;
+    wire [31:0] mem_wdata;
+
+    assign mem_we_byte = (es_alu_result[1:0] == 2'b00) ? 4'b0001 :
+                         (es_alu_result[1:0] == 2'b01) ? 4'b0010 :
+                         (es_alu_result[1:0] == 2'b10) ? 4'b0100 :
+                                                         4'b1000;
+
+    assign mem_we_half = es_alu_result[1] ? 4'b1100 : 4'b0011;
+
+    assign mem_we_mask = (mem_size == 2'b01) ? mem_we_byte :
+                         (mem_size == 2'b10) ? mem_we_half : 4'hf;
+
+    // NOTE: ex6 写数据按宽度复制到各字节通道, 具体写哪个通道由 we 决定
+    assign mem_wdata = (mem_size == 2'b01) ? {4{rkd_value[ 7: 0]}} :
+                       (mem_size == 2'b10) ? {2{rkd_value[15: 0]}} :
+                       rkd_value;
+
+    assign data_sram_we = (es_valid && mem_we) ? mem_we_mask : 4'h0;
     assign data_sram_addr = es_alu_result;
-    assign data_sram_wdata = rkd_value;
+    assign data_sram_wdata = mem_wdata;
 
     // EXE -> MEM
     assign es_to_ms_bus = {
-        es_pc,  // [104:73]
-        mem_we,  // [72]
-        gr_we,  // [71]
-        dest,  // [70:66]
-        es_alu_result,  // [65:34]
-        rkd_value,  // [33:2]
-        res_from_mem,  // [1]
-        load_op  // [0]
+        es_pc,  // [106:75]
+        mem_we,  // [74]
+        gr_we,  // [73]
+        dest,  // [72:68]
+        es_alu_result,  // [67:36]
+        rkd_value,  // [35:4]
+        res_from_mem,  // [3]
+        mem_size,  // [2:1]
+        mem_sign  // [0]
     };
 
     always @(posedge clk) begin

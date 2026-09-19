@@ -19,3 +19,5 @@ sync_ram.v 与 Vivado IP 还有两处不一致, 仿真里写不看 en, 且等价
 > Data 侧其实只有两个从设备, bridge_1x2 用 (addr & 0x1fff0000) == 0x1faf0000 分出 confreg, 其余全部落到 data_ram.
 > confreg 是一个 64KB 窗口且高位不参与比较, 所以 0xbfaf.... 也命中, 窗口内再由 conf_addr[15:0] 译码到 LED, 数码管, 开关, 按键, timer, cr0~cr7, 以及只给仿真用的 open_trace, num_monitor, virtual uart.
 > 它同样用普通 ld.w / st.w 访问, 读延迟也是 1 拍, 因此 CPU 不必区分内存与外设. 注意它与 ex8 的 CSR 没有关系.
+
+这里还有一个问题是, store 信号也是 ID 阶段发出的, 这是由于, 流水线设计导致了, 如果 store 在 MEM 阶段发出, 那么很有可能和正在 ID 阶段的 load 指令冲突.

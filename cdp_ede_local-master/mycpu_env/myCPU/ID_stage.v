@@ -93,8 +93,10 @@ module ID_stage (
     // NOTE: Decoder 控制信号
     // alu 控制信号, 使用 onehot 形式
     wire [11:0] alu_op;
-    // load 类指令的标识位
-    wire        load_op;
+    // 访存宽度
+    wire [ 1:0] mem_size;
+    // 访存符号扩展 00 => word, 01 => byte, 10 => half word
+    wire        mem_sign;
     // src1 来自 pc
     wire        src1_is_pc;
     // src2 来自 imm
@@ -229,6 +231,13 @@ module ID_stage (
     wire inst_bge;
     wire inst_bltu;
     wire inst_bgeu;
+    // NOTE: ex6
+    wire inst_ld_b;
+    wire inst_ld_h;
+    wire inst_ld_bu;
+    wire inst_ld_hu;
+    wire inst_st_b;
+    wire inst_st_h;
 
     assign inst_add_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
     assign inst_sub_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
@@ -265,9 +274,17 @@ module ID_stage (
     assign inst_bge = op_31_26_d[6'h19];
     assign inst_bltu = op_31_26_d[6'h1a];
     assign inst_bgeu = op_31_26_d[6'h1b];
+    // NOTE: ex6 
+    assign inst_ld_b = op_31_26_d[6'h0a] & op_25_22_d[4'h0];
+    assign inst_ld_h = op_31_26_d[6'h0a] & op_25_22_d[4'h1];
+    assign inst_ld_bu = op_31_26_d[6'h0a] & op_25_22_d[4'h8];
+    assign inst_ld_hu = op_31_26_d[6'h0a] & op_25_22_d[4'h9];
+    assign inst_st_b = op_31_26_d[6'h0a] & op_25_22_d[4'h4];
+    assign inst_st_h = op_31_26_d[6'h0a] & op_25_22_d[4'h5];
 
-    // ex4
-    assign alu_op[0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_bl | inst_pcaddu12i;
+    // ex4 / ex6
+    assign alu_op[0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_bl | inst_pcaddu12i
+                     | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_st_b | inst_st_h;
     assign alu_op[1] = inst_sub_w;
     // ex4
     assign alu_op[2] = inst_slt | inst_slti;
@@ -298,8 +315,9 @@ module ID_stage (
     wire need_ui12;
 
     assign need_ui5 = inst_slli_w | inst_srli_w | inst_srai_w;
-    // ex4
-    assign need_si12 = inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui;
+    // ex4 / ex6
+    assign need_si12 = inst_addi_w | inst_ld_w | inst_st_w | inst_slti | inst_sltui
+                     | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_st_b | inst_st_h;
     // ex5
     assign need_si16 = inst_jirl | inst_beq | inst_bne | inst_blt | inst_bge | inst_bltu | inst_bgeu;
     // ex4
@@ -320,8 +338,9 @@ module ID_stage (
 
     assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};
 
-    // ex5
-    assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w | inst_blt | inst_bge | inst_bltu | inst_bgeu;
+    // ex5 / ex6
+    assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w | inst_blt | inst_bge | inst_bltu | inst_bgeu
+                         | inst_st_b | inst_st_h;
     // ex4
     assign src1_is_pc = inst_jirl | inst_bl | inst_pcaddu12i;
 
@@ -340,15 +359,26 @@ module ID_stage (
                            inst_andi    |
                            inst_ori     |
                            inst_xori    |
-                           inst_pcaddu12i ;
+                           inst_pcaddu12i |
+                           inst_ld_b    |
+                           inst_ld_h    |
+                           inst_ld_bu   |
+                           inst_ld_hu   |
+                           inst_st_b    |
+                           inst_st_h    ;
 
-    assign res_from_mem = inst_ld_w;
-    assign load_op = inst_ld_w;
+    // ex6: 所有 load 的结果都来自数据 RAM
+    assign res_from_mem = inst_ld_w | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu;
+    // NOTE: ex6 访存宽度与符号扩展
+    assign mem_size = (inst_ld_b | inst_ld_bu | inst_st_b) ? 2'b01 :
+                      (inst_ld_h | inst_ld_hu | inst_st_h) ? 2'b10 : 2'b00;
+    assign mem_sign = inst_ld_b | inst_ld_h;
     assign dst_is_r1 = inst_bl;
-    // ex5
-    assign gr_we = ~inst_st_w & ~inst_beq & ~inst_bne & ~inst_b
+
+    // ex5 / ex6
+    assign gr_we = ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b
                  & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu;
-    assign mem_we = inst_st_w;
+    assign mem_we = inst_st_w | inst_st_b | inst_st_h;
     // 5'd1 是 r1 寄存器编号
     assign dest = dst_is_r1 ? 5'd1 : rd;
 
@@ -359,13 +389,15 @@ module ID_stage (
                         inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_beq | inst_bne |
                         inst_slti | inst_sltui | inst_andi | inst_ori | inst_xori |
                         inst_sll_w | inst_srl_w | inst_sra_w |
-                        inst_blt | inst_bge | inst_bltu | inst_bgeu;
+                        inst_blt | inst_bge | inst_bltu | inst_bgeu |
+                        inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_st_b | inst_st_h;
 
     // ex4
     assign src2_is_rk  = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor |
                          inst_sll_w | inst_srl_w | inst_sra_w;
-    // ex5
-    assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w
+
+    // ex5 / ex6
+    assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w | inst_st_b | inst_st_h
                          | inst_blt | inst_bge | inst_bltu | inst_bgeu;
 
     // NOTE: 寄存器堆
@@ -425,8 +457,9 @@ module ID_stage (
 
     //NOTE : 将 ID 信息传入到 EXE 阶段
     assign ds_to_es_bus = {
-        alu_op,  // [151:140]
-        load_op,  // [139]
+        alu_op,  // [153:142]
+        mem_size,  // [141:140]
+        mem_sign,  // [139]
         src1_is_pc,  // [138]
         src2_is_imm,  // [137]
         src2_is_4,  // [136]

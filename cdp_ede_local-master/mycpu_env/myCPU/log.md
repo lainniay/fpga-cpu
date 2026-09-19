@@ -94,3 +94,17 @@ pcaddu12i:
 | `bge` | Branch if Greater or Equal | 有符号 `>=` |
 | `bltu` | Branch if Less Than Unsigned | 无符号 `<` |
 | `bgeu` | Branch if Greater or Equal Unsigned | 无符号 `>=` |
+
+# Ex6
+
+增加 load/store 指令: ld.b, ld.h, ld.bu, ld.hu, st.b, st.h.
+
+| 指令 | 含义 | 宽度 | 扩展 |
+|---|---|---|---|
+| `ld.b` | 取字节, 符号扩展后写 rd | 1 字节 | SignExtend |
+| `ld.h` | 取半字, 符号扩展后写 rd | 2 字节 | SignExtend |
+| `ld.bu` | 取字节, 零扩展后写 rd | 1 字节 | ZeroExtend |
+| `ld.hu` | 取半字, 零扩展后写 rd | 2 字节 | ZeroExtend |
+| `st.b` | 把 rd[7:0] 写入内存 | 1 字节 | 不涉及 |
+| `st.h` | 把 rd[15:0] 写入内存 | 2 字节 | 不涉及 |
+

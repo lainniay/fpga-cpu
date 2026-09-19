@@ -44,7 +44,8 @@ module MEM_stage (
     wire [                31:0] ms_alu_result;
     wire [                31:0] ms_rkd_value;
     wire                        res_from_mem;
-    wire                        load_op;
+    wire [                 1:0] mem_size;
+    wire                        mem_sign;
 
     assign {
         ms_pc,
@@ -54,12 +55,31 @@ module MEM_stage (
         ms_alu_result,
         ms_rkd_value,
         res_from_mem,
-        load_op
+        mem_size,
+        mem_sign
     } = es_to_ms_bus_r;
+
+    // NOTE: ex6 
+    wire [ 7:0] ms_byte;
+    wire [15:0] ms_half;
+    wire [31:0] ms_load_data;
+
+    assign ms_byte = (ms_alu_result[1:0] == 2'b00) ? data_sram_rdata[ 7: 0] :
+                     (ms_alu_result[1:0] == 2'b01) ? data_sram_rdata[15: 8] :
+                     (ms_alu_result[1:0] == 2'b10) ? data_sram_rdata[23:16] :
+                                                     data_sram_rdata[31:24];
+
+    assign ms_half = ms_alu_result[1] ? data_sram_rdata[31:16] : data_sram_rdata[15:0];
+
+    // NOTE: ex6 按 mem_size 选宽度, 按 mem_sign 决定扩展方式
+    // NOTE: mem_size = 00 => word, 01 => byte, 10 => half word
+    assign ms_load_data = (mem_size == 2'b01) ? (mem_sign ? {{24{ms_byte[7] }}, ms_byte} : {24'b0, ms_byte}) :
+                          (mem_size == 2'b10) ? (mem_sign ? {{16{ms_half[15]}}, ms_half} : {16'b0, ms_half}) :
+                          data_sram_rdata;
 
     wire [31:0] ms_final_result;
     // NOTE: 最终写回的数据
-    assign ms_final_result = res_from_mem ? data_sram_rdata : ms_alu_result;
+    assign ms_final_result = res_from_mem ? ms_load_data : ms_alu_result;
 
     assign ms_to_ws_bus = {ms_pc, gr_we, dest, ms_final_result};
 
