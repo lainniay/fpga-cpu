@@ -35,6 +35,8 @@ module ID_stage (
     // NOTE: ex3
     input wire        es_res_from_mem,
     input wire [31:0] es_fwd_data,
+    input wire        es_ready_go,      // ex7
+    input wire        es_is_mul,        // ex7
     input wire [31:0] ms_fwd_data,
 
     // NOTE: ex6
@@ -54,6 +56,17 @@ module ID_stage (
     wire ms_fwd_en2;
     wire ws_fwd_en2;
 
+    // NOTE: ex3 / ex7 "命中"条件: 某一级的写目标就是 ID 要读的寄存器.
+    //       前递使能和停顿判断都从这组信号派生, 避免两处逻辑各自演化而走偏
+    wire es_match1;
+    wire es_match2;
+    wire ms_match1;
+    wire ms_match2;
+    wire es_match;
+    wire ms_match;
+    wire late_use1;
+    wire late_use2;
+
     wire [31:0] rf_rdata1_fwd;
     wire [31:0] rf_rdata2_fwd;
 
@@ -65,8 +78,10 @@ module ID_stage (
     // assign ds_ready_go    = !(es_conflict | ms_conflict | ws_conflict);
 
     // NOTE: ex3
-    wire load_use;
-    assign ds_ready_go    = !load_use;
+    wire late_use;
+    // NOTE: ex7
+    wire es_late;
+    assign ds_ready_go    = !late_use;
 
     assign ds_allowin     = !ds_valid || (ds_ready_go && es_allowin);
     assign ds_to_es_valid = ds_valid && ds_ready_go;
@@ -95,7 +110,7 @@ module ID_stage (
 
     // NOTE: Decoder 控制信号
     // alu 控制信号, 使用 onehot 形式
-    wire [11:0] alu_op;
+    wire [18:0] alu_op;  // ex7
     // 访存宽度
     wire [ 1:0] mem_size;
     // 访存符号扩展 00 => word, 01 => byte, 10 => half word
@@ -241,6 +256,15 @@ module ID_stage (
     wire inst_ld_hu;
     wire inst_st_b;
     wire inst_st_h;
+    // NOTE: ex7
+    wire inst_mul_w;
+    wire inst_mulh_w;
+    wire inst_mulh_wu;
+    // NOTE: ex7
+    wire inst_div_w;
+    wire inst_mod_w;
+    wire inst_div_wu;
+    wire inst_mod_wu;
 
     assign inst_add_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
     assign inst_sub_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
@@ -284,6 +308,15 @@ module ID_stage (
     assign inst_ld_hu = op_31_26_d[6'h0a] & op_25_22_d[4'h9];
     assign inst_st_b = op_31_26_d[6'h0a] & op_25_22_d[4'h4];
     assign inst_st_h = op_31_26_d[6'h0a] & op_25_22_d[4'h5];
+    // NOTE: ex7
+    assign inst_mul_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h18];
+    assign inst_mulh_w  = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h19];
+    assign inst_mulh_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h1a];
+    // NOTE: ex7
+    assign inst_div_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h00];
+    assign inst_mod_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h01];
+    assign inst_div_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h02];
+    assign inst_mod_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h03];
 
     // ex4 / ex6
     assign alu_op[0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_bl | inst_pcaddu12i
@@ -307,6 +340,15 @@ module ID_stage (
     // ex4
     assign alu_op[10] = inst_srai_w | inst_sra_w;
     assign alu_op[11] = inst_lu12i_w;
+    // NOTE: ex7
+    assign alu_op[12] = inst_mul_w;
+    assign alu_op[13] = inst_mulh_w;
+    assign alu_op[14] = inst_mulh_wu;
+    // NOTE: ex7
+    assign alu_op[15] = inst_div_w;
+    assign alu_op[16] = inst_mod_w;
+    assign alu_op[17] = inst_div_wu;
+    assign alu_op[18] = inst_mod_wu;
 
     // NOTE: Immediate Number 控制信号
     wire need_ui5;
@@ -393,11 +435,15 @@ module ID_stage (
                         inst_slti | inst_sltui | inst_andi | inst_ori | inst_xori |
                         inst_sll_w | inst_srl_w | inst_sra_w |
                         inst_blt | inst_bge | inst_bltu | inst_bgeu |
-                        inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_st_b | inst_st_h;
+                        inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_st_b | inst_st_h |  // ex7
+        inst_mul_w | inst_mulh_w | inst_mulh_wu |  // ex7
+        inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu;  // NOTE: ex7
 
     // ex4
     assign src2_is_rk  = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor |
-                         inst_sll_w | inst_srl_w | inst_sra_w;
+                         inst_sll_w | inst_srl_w | inst_sra_w |  // ex7
+        inst_mul_w | inst_mulh_w | inst_mulh_wu |  // ex7
+        inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu;  // NOTE: ex7
 
     // ex5 / ex6
     assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w | inst_st_b | inst_st_h
@@ -460,7 +506,7 @@ module ID_stage (
 
     //NOTE : 将 ID 信息传入到 EXE 阶段
     assign ds_to_es_bus = {
-        alu_op,  // [153:142]
+        alu_op,  // [160:142]  // ex7
         mem_size,  // [141:140]
         mem_sign,  // [139]
         src1_is_pc,  // [138]
@@ -473,8 +519,8 @@ module ID_stage (
         rj_value,  // [96:65]
         rkd_value,  // [64:33]
         ds_pc,  // [32:1]
-        res_from_mem
-    };  // [0]
+        res_from_mem  // [0]
+    };
 
     // NOTE: ex2 相关判断
     // es_valid 表明 exe 阶段是一条有效的指令, 不是 bubble
@@ -483,10 +529,8 @@ module ID_stage (
     // src1_is_rj / src2_is_rkd 表示 ID 指令是不是真的要使用 regfile, 后面的用于判断写目标是不是 ID 需要读的寄存器
     // assign es_conflict = es_valid && es_gr_we && (es_dest != 5'd0) &&
     //                   ((src1_is_rj && es_dest == rf_raddr1) || (src2_is_rkd && es_dest == rf_raddr2));
-
     // assign ms_conflict = ms_valid && ms_gr_we && (ms_dest != 5'd0) &&
     //                   ((src1_is_rj && ms_dest == rf_raddr1) || (src2_is_rkd && ms_dest == rf_raddr2));
-
     // rf_we 本来就是供给 wb 的写控制信号, rf_we = ws_valid && gr_we
     // assign ws_conflict = rf_we && (rf_waddr != 5'd0) &&
     //                   ((src1_is_rj && rf_waddr == rf_raddr1) || (src2_is_rkd && rf_waddr == rf_raddr2));
@@ -494,23 +538,35 @@ module ID_stage (
     // NOTE: ex3
     // ex3 的判断信号和上面的几乎一样, 但是需要注意的是, exe 阶段需要排除 es_res_from_mem, 也就是 load 类指令
     // ex6 由于 load 类指令在 mem 阶段回传会导致超过 50MHz 的时间限制, 因此需要加上
-    assign es_fwd_en1 = es_valid && es_gr_we && !es_res_from_mem && (es_dest != 5'd0) && src1_is_rj && (es_dest == rf_raddr1);
-    assign ms_fwd_en1 = ms_valid && ms_gr_we && !ms_res_from_mem && (ms_dest != 5'd0) && src1_is_rj && (ms_dest == rf_raddr1);
-    assign ws_fwd_en1 = rf_we && (rf_waddr != 5'd0) && src1_is_rj && (rf_waddr == rf_raddr1);
+    // NOTE: ex7 es_ready_go 保证除法结果未算完时不被前递
+    assign es_match1 = es_valid && es_gr_we && (es_dest != 5'd0) && src1_is_rj && (es_dest == rf_raddr1);
+    assign es_match2 = es_valid && es_gr_we && (es_dest != 5'd0) && src2_is_rkd && (es_dest == rf_raddr2);
+    assign ms_match1 = ms_valid && ms_gr_we && (ms_dest != 5'd0) && src1_is_rj && (ms_dest == rf_raddr1);
+    assign ms_match2 = ms_valid && ms_gr_we && (ms_dest != 5'd0) && src2_is_rkd && (ms_dest == rf_raddr2);
+    assign es_match = es_match1 | es_match2;
+    assign ms_match = ms_match1 | ms_match2;
 
-    assign es_fwd_en2 = es_valid && es_gr_we && !es_res_from_mem && (es_dest != 5'd0) && src2_is_rkd && (es_dest == rf_raddr2);
-    assign ms_fwd_en2 = ms_valid && ms_gr_we && !ms_res_from_mem && (ms_dest != 5'd0) && src2_is_rkd && (ms_dest == rf_raddr2);
+    assign es_fwd_en1 = es_match1 && es_ready_go && !es_late;
+    assign es_fwd_en2 = es_match2 && es_ready_go && !es_late;
+    assign ms_fwd_en1 = ms_match1 && !ms_res_from_mem;
+    assign ms_fwd_en2 = ms_match2 && !ms_res_from_mem;
+    assign ws_fwd_en1 = rf_we && (rf_waddr != 5'd0) && src1_is_rj && (rf_waddr == rf_raddr1);
     assign ws_fwd_en2 = rf_we && (rf_waddr != 5'd0) && src2_is_rkd && (rf_waddr == rf_raddr2);
 
     // NOTE: ex3 前递优先级 EXE > MEM > WB
     assign rf_rdata1_fwd = es_fwd_en1 ? es_fwd_data : ms_fwd_en1 ? ms_fwd_data : ws_fwd_en1 ? rf_wdata : rf_rdata1;
     assign rf_rdata2_fwd = es_fwd_en2 ? es_fwd_data : ms_fwd_en2 ? ms_fwd_data : ws_fwd_en2 ? rf_wdata : rf_rdata2;
 
-    // NOTE: ex3 / ex6 
-    assign load_use = (es_valid && es_res_from_mem && es_gr_we && (es_dest != 5'd0)
-                    && ((src1_is_rj && es_dest == rf_raddr1) || (src2_is_rkd && es_dest == rf_raddr2)))
-                   || (ms_valid && ms_res_from_mem && ms_gr_we && (ms_dest != 5'd0)
-                    && ((src1_is_rj && ms_dest == rf_raddr1) || (src2_is_rkd && ms_dest == rf_raddr2)));
+    // NOTE: ex3 / ex6 / ex7
+    // NOTE: 这里发现, 如果将乘法结果在 EXE 阶段送回, 会导致超时, 因此需要留到后面的阶段送回
+    assign es_late = es_res_from_mem | es_is_mul;
+
+    // NOTE: ex7 前递优先级是 EXE > MEM > WB
+    // NOTE: 实际上, 如果需要的是 EXE 阶段的, 那么就没必要继续检查 MEM 阶段了, 
+    assign late_use1 = es_match1 ? es_late : (ms_match1 & ms_res_from_mem);
+    assign late_use2 = es_match2 ? es_late : (ms_match2 & ms_res_from_mem);
+
+    assign late_use = late_use1 | late_use2;
 
 endmodule
 

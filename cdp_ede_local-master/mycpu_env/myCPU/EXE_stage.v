@@ -30,21 +30,34 @@ module EXE_stage (
 
     // NOTE: Ex3
     output wire [31:0] es_fwd_data,
-    output wire        es_res_from_mem
+    output wire        es_res_from_mem,
+    output wire        es_is_mul,        // ex7
+
+    // NOTE: ex7
+    output wire es_ready_go
 );
 
     // NOTE: EXE 阶段握手信号
-    reg  es_valid_r;  // ex2: 
-    wire es_ready_go;
-    // todo ex1: EXE 中所有指令一拍完成
-    assign es_ready_go    = 1'b1;
+    reg         es_valid_r;  // ex2: 
+    // NOTE: ex7 除法是多周期指令: 未完成时 ready_go = 0
+    wire        es_is_div;
+    wire        div_start;
+    wire        div_done;
+    wire        div_signed;
+    wire        div_take_rem;
+    wire [31:0] div_quotient;
+    wire [31:0] div_remainder;
+    reg         div_started;
+
+    // NOTE: ex7 
+    assign es_ready_go    = !es_is_div | (div_started & div_done);
     assign es_allowin     = !es_valid || (es_ready_go && ms_allowin);
     assign es_to_ms_valid = es_valid && es_ready_go;
 
     // 存储 ds_to_es_bus 中的瞬间信号
     reg  [`DS_TO_ES_BUS_WD-1:0] ds_to_es_bus_r;
 
-    wire [                11:0] alu_op;  // [153:142]
+    wire [                18:0] alu_op;  // [160:142]  // ex7
     wire [                 1:0] mem_size;  // [141:140]
     wire                        mem_sign;  // [139]
     wire                        src1_is_pc;  // [138]
@@ -81,6 +94,7 @@ module EXE_stage (
     wire [31:0] alu_src1;
     wire [31:0] alu_src2;
     wire [31:0] es_alu_result;
+    wire [31:0] es_mul_result;  // NOTE: ex7
 
     assign alu_src1 = src1_is_pc ? es_pc : rj_value;
     assign alu_src2 = src2_is_imm ? imm : rkd_value;
@@ -89,10 +103,51 @@ module EXE_stage (
         .alu_op    (alu_op),
         .alu_src1  (alu_src1),
         .alu_src2  (alu_src2),
-        .alu_result(es_alu_result)
+        .alu_result(es_alu_result),  // ex7
+        .mul_result(es_mul_result)   // NOTE: ex7
     );
 
-    // 
+    // NOTE: ex7
+    //         (div 类指令的 src1_is_pc / src2_is_imm 均为 0, 故分别是 rj 与 rk)
+    assign es_is_div    = alu_op[15] | alu_op[16] | alu_op[17] | alu_op[18];
+    assign div_signed   = alu_op[15] | alu_op[16];  // div.w / mod.w
+    assign div_take_rem = alu_op[16] | alu_op[18];  // mod.w / mod.wu
+
+    // NOTE: ex7 
+    assign div_start = es_valid && es_is_div && !div_started;
+
+    always @(posedge clk) begin
+        if (reset) begin
+            div_started <= 1'b0;
+        end
+        else if (div_start) begin
+            div_started <= 1'b1;
+        end
+        else if (es_valid && es_allowin) begin
+            div_started <= 1'b0;
+        end
+    end
+
+    divider u_divider (
+        .clk      (clk),
+        .reset    (reset),
+        .start    (div_start),
+        .is_signed(div_signed),
+        .op_a     (alu_src1),
+        .op_b     (alu_src2),
+        .done     (div_done),
+        .quotient (div_quotient),
+        .remainder(div_remainder)
+    );
+
+    // NOTE: ex7 
+    assign es_is_mul = alu_op[12] | alu_op[13] | alu_op[14];
+
+    // NOTE: ex7 
+    wire [31:0] es_result;
+    // NOTE: ex7 乘法只进入 MEM 数据通路, 流入 MEM 后续的阶段送回
+    assign es_result = es_is_mul ? es_mul_result : es_fwd_data;  // ex7
+
     assign data_sram_en = es_valid && (res_from_mem | mem_we);
 
     // NOTE: ex6 按访存宽度和地址低两位生成字节写使能
@@ -126,7 +181,7 @@ module EXE_stage (
         mem_we,  // [74]
         gr_we,  // [73]
         dest,  // [72:68]
-        es_alu_result,  // [67:36]
+        es_result,  // [67:36]  // ex7
         rkd_value,  // [35:4]
         res_from_mem,  // [3]
         mem_size,  // [2:1]
@@ -150,8 +205,9 @@ module EXE_stage (
     assign es_dest = dest;
     assign es_gr_we = gr_we;
 
-    // NOTE: Ex3, 将 exe 计算的输出导出去
-    assign es_fwd_data = es_alu_result;
+    // NOTE: Ex3 / ex7
+    // NOTE: ex7 前递路径不连接乘法结果
+    assign es_fwd_data = es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;  // ex7
     assign es_res_from_mem = res_from_mem;
 
 endmodule

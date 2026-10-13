@@ -44,7 +44,6 @@ module IF_stage (
     // NOTE: next_pc 是 IF 的下一个 PC
     assign next_pc        = br_taken ? br_target : seq_pc;
 
-    // todo ex1 fs_ready_go = 1 
     assign fs_ready_go    = 1'b1;
     assign fs_allowin     = !fs_valid || (fs_ready_go && ds_allowin);
     assign fs_to_ds_valid = fs_valid && fs_ready_go && !br_taken;

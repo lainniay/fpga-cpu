@@ -113,3 +113,49 @@ pcaddu12i:
 虽然真实的数据在 MEM 阶段结束就已经拿到了, 但是如果直接在 MEM 阶段进行回传, 会导致 50MHz 的下一个时钟沿到来之前, 没法完全 MEM -> ID 写回的全部步骤.
 
 因此, 对于 load 类指令需要拖到 WB 阶段再进行写回, 让 ID 的指令 Stall.
+
+# Ex7
+
+加上乘除法指令: mul.w, mulh.w, mulh.wu, div.w, mod.w, div.wu, mod.wu
+
+| 指令 | 大致含义 | 核心操作 |
+|---|---|---|
+| `mul.w` | 乘法, 取乘积低 32 位 | `(rj * rk)[31:0]` |
+| `mulh.w` | 有符号乘法, 取乘积高 32 位 | `(signed(rj) * signed(rk))[63:32]` |
+| `mulh.wu` | 无符号乘法, 取乘积高 32 位 | `(unsigned(rj) * unsigned(rk))[63:32]` |
+| `div.w` | 有符号除法, 取商 | `signed(rj) / signed(rk)` |
+| `mod.w` | 有符号除法, 取余数 | `signed(rj) % signed(rk)` |
+| `div.wu` | 无符号除法, 取商 | `unsigned(rj) / unsigned(rk)` |
+| `mod.wu` | 无符号除法, 取余数 | `unsigned(rj) % unsigned(rk)` |
+
+> 需要注意的是, 同一组 operand, 其经过有符号乘法, 和无符号乘法得到的结果是 mod 2^{32} 同余的.
+
+需要注意的是, 除法是多周期的, 因此 es_ready_go 并不总是 1, 需要根据除法来进行判别. 而且, 除法的 done 只会在除法开始和除法结束的时候进行修改, 因此需要另一个 start 信号控制.
+
+经过测试, mul 直接在 exe 阶段回传会导致超时, 因此延迟到 mem 阶段进行回传.
+
+```c
+mul.w:
+    product = signed(rj) * signed(rk);
+    rd = product[31:0];         // 低 32 位与无符号乘法结果相同
+
+mulh.w:
+    product = signed(rj) * signed(rk);
+    rd = product[63:32];
+
+mulh.wu:
+    product = unsigned(rj) * unsigned(rk);
+    rd = product[63:32];
+
+div.w:
+    rd = signed(rj) / signed(rk);
+
+mod.w:
+    rd = signed(rj) % signed(rk);
+
+div.wu:
+    rd = unsigned(rj) / unsigned(rk);
+
+mod.wu:
+    rd = unsigned(rj) % unsigned(rk);
+```

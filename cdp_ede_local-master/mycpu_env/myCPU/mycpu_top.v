@@ -55,6 +55,8 @@ module mycpu_top (
 
     wire [                31:0] es_fwd_data;
     wire                        es_res_from_mem;
+    wire                        es_ready_go;  // ex7
+    wire                        es_is_mul;  // ex7
     wire [                31:0] ms_fwd_data;
     wire                        ms_res_from_mem;
 
@@ -93,6 +95,8 @@ module mycpu_top (
 
         .es_res_from_mem(es_res_from_mem),
         .es_fwd_data   (es_fwd_data),
+        .es_ready_go   (es_ready_go),  // ex7
+        .es_is_mul     (es_is_mul),  // ex7
         .ms_fwd_data   (ms_fwd_data),
         .ms_res_from_mem(ms_res_from_mem)
     );
@@ -116,7 +120,9 @@ module mycpu_top (
         .es_valid       (es_valid),
 
         .es_fwd_data    (es_fwd_data),
-        .es_res_from_mem(es_res_from_mem)
+        .es_res_from_mem(es_res_from_mem),
+        .es_ready_go    (es_ready_go),  // ex7
+        .es_is_mul      (es_is_mul)  // ex7
     );
 
     MEM_stage u_mem_stage (

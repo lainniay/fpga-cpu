@@ -2,10 +2,12 @@
 `define ALU_V
 
 module alu (
-    input  wire [11:0] alu_op,
+    input  wire [18:0] alu_op,      // ex7
     input  wire [31:0] alu_src1,
     input  wire [31:0] alu_src2,
-    output wire [31:0] alu_result
+    output wire [31:0] alu_result,  // ex7
+    output wire [31:0] mul_result   // ex7
+    // NOTE: 由于如果将乘法结果, 接在最后的 mux 里面, 仍然会导致 exe 为了等待 alu_result 而超时
 );
 
     wire op_add;  //add operation
@@ -20,20 +22,26 @@ module alu (
     wire op_srl;  //logic right shift
     wire op_sra;  //arithmetic right shift
     wire op_lui;  //Load Upper Immediate
+    // NOTE: ex7
+    wire op_mulh_w;  //mulh.w : 乘积高 32 位(有符号)
+    wire op_mulh_wu;  //mulh.wu: 乘积高 32 位(无符号)
 
     // control code decomposition
-    assign op_add  = alu_op[0];
-    assign op_sub  = alu_op[1];
-    assign op_slt  = alu_op[2];
+    assign op_add = alu_op[0];
+    assign op_sub = alu_op[1];
+    assign op_slt = alu_op[2];
     assign op_sltu = alu_op[3];
-    assign op_and  = alu_op[4];
-    assign op_nor  = alu_op[5];
-    assign op_or   = alu_op[6];
-    assign op_xor  = alu_op[7];
-    assign op_sll  = alu_op[8];
-    assign op_srl  = alu_op[9];
-    assign op_sra  = alu_op[10];
-    assign op_lui  = alu_op[11];
+    assign op_and = alu_op[4];
+    assign op_nor = alu_op[5];
+    assign op_or = alu_op[6];
+    assign op_xor = alu_op[7];
+    assign op_sll = alu_op[8];
+    assign op_srl = alu_op[9];
+    assign op_sra = alu_op[10];
+    assign op_lui = alu_op[11];
+    // NOTE: ex7
+    assign op_mulh_w = alu_op[13];
+    assign op_mulh_wu = alu_op[14];
 
     wire [31:0] add_sub_result;
     wire [31:0] slt_result;
@@ -46,6 +54,9 @@ module alu (
     wire [31:0] sll_result;
     wire [63:0] sr64_result;
     wire [31:0] sr_result;
+    // NOTE: ex7
+    wire [63:0] mul_signed;
+    wire [63:0] mul_unsigned;
 
 
     // 32-bit adder
@@ -90,6 +101,15 @@ module alu (
 
     // NOTE: 原来是 assign sr_result = sr64_result[32:0]
     assign sr_result = sr64_result[31:0];
+
+    // NOTE: ex7
+    assign mul_signed = $signed(alu_src1) * $signed(alu_src2);
+    assign mul_unsigned = alu_src1 * alu_src2;
+
+    // NOTE: ex7
+    assign mul_result = op_mulh_w  ? mul_signed[63:32]   :
+                        op_mulh_wu ? mul_unsigned[63:32] :
+                                     mul_signed[31:0];
 
     // final result mux
     assign alu_result = ({32{op_add|op_sub}} & add_sub_result)

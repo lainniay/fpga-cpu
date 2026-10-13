@@ -26,4 +26,15 @@ assign stage_to_next_valid =
     stage_valid && stage_ready_go;
 ```
 
+统一的更新模板:
+
+```verilog
+always @(posedge clk) begin
+    if (reset)                       x_valid_r <= 1'b0;
+    else if (x_allowin)              x_valid_r <= up_to_x_valid;    
+    if (up_to_x_valid && x_allowin)  x_bus_r   <= up_to_x_bus;     
+end
+```
+
+这里的 x_allowin, 就写 x_valid_r 是为了实现 bubble, 因为 bubble 不需要读取总线, 但是需要明确的占用一个周期, 从而需要让整个单元空着一个周期.
 
