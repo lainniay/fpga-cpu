@@ -40,7 +40,11 @@ module ID_stage (
     input wire [31:0] ms_fwd_data,
 
     // NOTE: ex6
-    input wire ms_res_from_mem
+    input wire ms_res_from_mem,
+
+    // NOTE: ex8 csr 结果要到 WB 才能拿到, 与 res_from_mem 同类
+    input wire es_res_from_csr,
+    input wire ms_res_from_csr
 );
 
     // NOTE: ex2
@@ -123,6 +127,14 @@ module ID_stage (
     wire        src2_is_4;
     // res 来自 MEM
     wire        res_from_mem;
+    // NOTE: ex8 res 来自 CSR
+    wire        res_from_csr;
+    // NOTE: ex8 csr 写使能, 以及写掩码
+    wire        csr_we;
+    wire [31:0] csr_wmask;
+    // NOTE: ex8 两条异常指令的标志, 沿流水线带到 WB 才上报
+    wire        ex_syscall;
+    wire        ex_ertn;
     // 目标寄存器是 r1
     wire        dst_is_r1;
     // 通用寄存器写使能
@@ -171,6 +183,9 @@ module ID_stage (
     wire [ 4:0] rj;
     wire [ 4:0] rk;
 
+    // NOTE: ex8 csr 指令的寄存器号
+    wire [13:0] csr_addr;
+
     wire [11:0] i12;
     wire [19:0] i20;
     wire [15:0] i16;
@@ -180,6 +195,8 @@ module ID_stage (
     wire [15:0] op_25_22_d;
     wire [ 3:0] op_21_20_d;
     wire [31:0] op_19_15_d;
+    // NOTE: ex8
+    wire [31:0] op_9_5_d;
 
     assign op_31_26 = ds_inst[31:26];
     assign op_25_22 = ds_inst[25:22];
@@ -189,6 +206,9 @@ module ID_stage (
     assign rd       = ds_inst[4:0];
     assign rj       = ds_inst[9:5];
     assign rk       = ds_inst[14:10];
+
+    // NOTE: ex8
+    assign csr_addr = ds_inst[23:10];
 
     assign i12      = ds_inst[21:10];
     assign i20      = ds_inst[24:5];
@@ -211,6 +231,12 @@ module ID_stage (
     decoder_5_32 u_dec3 (
         .in (op_19_15),
         .out(op_19_15_d)
+    );
+
+    // NOTE: ex8
+    decoder_5_32 u_dec4 (
+        .in (ds_inst[9:5]),
+        .out(op_9_5_d)
     );
 
     // NOTE: 控制信号, 用于控制是否是对应的指令
@@ -265,6 +291,13 @@ module ID_stage (
     wire inst_mod_w;
     wire inst_div_wu;
     wire inst_mod_wu;
+    // NOTE: ex8
+    wire inst_csrrd;
+    wire inst_csrwr;
+    wire inst_csrxchg;
+    // NOTE: ex8
+    wire inst_syscall;
+    wire inst_ertn;
 
     assign inst_add_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
     assign inst_sub_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
@@ -317,6 +350,18 @@ module ID_stage (
     assign inst_mod_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h01];
     assign inst_div_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h02];
     assign inst_mod_wu = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h03];
+
+    // NOTE: ex8
+    //       [9:5] = 0 是 csrrd, = 1 是 csrwr, 其余取值是 csrxchg 的 rj
+    assign inst_csrrd = op_31_26_d[6'h01] & ~ds_inst[25] & ~ds_inst[24] & op_9_5_d[5'h00];
+    assign inst_csrwr = op_31_26_d[6'h01] & ~ds_inst[25] & ~ds_inst[24] & op_9_5_d[5'h01];
+    assign inst_csrxchg = op_31_26_d[6'h01] & ~ds_inst[25] & ~ds_inst[24]
+                        & ~op_9_5_d[5'h00] & ~op_9_5_d[5'h01];
+
+    // NOTE: ex8 syscall 的 inst[31:15] 是 0x002b<<15, 低 15 位是软件自定义的 code
+    assign inst_syscall = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h16];
+    // NOTE: ex8 ertn 的编码固定为 0x06483800
+    assign inst_ertn = op_31_26_d[6'h01] & ds_inst[25] & ~ds_inst[24];
 
     // ex4 / ex6
     assign alu_op[0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_bl | inst_pcaddu12i
@@ -383,9 +428,10 @@ module ID_stage (
 
     assign jirl_offs = {{14{i16[15]}}, i16[15:0], 2'b0};
 
-    // ex5 / ex6
+    // ex5 / ex6 / ex8
     assign src_reg_is_rd = inst_beq | inst_bne | inst_st_w | inst_blt | inst_bge | inst_bltu | inst_bgeu
-                         | inst_st_b | inst_st_h;
+                         | inst_st_b | inst_st_h
+                         | inst_csrwr | inst_csrxchg;
     // ex4
     assign src1_is_pc = inst_jirl | inst_bl | inst_pcaddu12i;
 
@@ -420,9 +466,19 @@ module ID_stage (
     assign mem_sign = inst_ld_b | inst_ld_h;
     assign dst_is_r1 = inst_bl;
 
-    // ex5 / ex6
+    // NOTE: ex8 三条 csr 指令的结果都来自 CSR, 要到 WB 才能拿到
+    assign res_from_csr = inst_csrrd | inst_csrwr | inst_csrxchg;
+    // NOTE: ex8 csrwr 写整个寄存器, csrxchg 用 rj 当掩码
+    assign csr_we = inst_csrwr | inst_csrxchg;
+    assign csr_wmask = inst_csrwr ? 32'hffffffff : rj_value;
+    // NOTE: ex8
+    assign ex_syscall = inst_syscall;
+    assign ex_ertn = inst_ertn;
+
+    // ex5 / ex6 / ex8
     assign gr_we = ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b
-                 & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu;
+                 & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu
+                 & ~inst_syscall & ~inst_ertn;  // NOTE: ex8 两条都不写通用寄存器
     assign mem_we = inst_st_w | inst_st_b | inst_st_h;
     // 5'd1 是 r1 寄存器编号
     assign dest = dst_is_r1 ? 5'd1 : rd;
@@ -437,7 +493,8 @@ module ID_stage (
                         inst_blt | inst_bge | inst_bltu | inst_bgeu |
                         inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu | inst_st_b | inst_st_h |  // ex7
         inst_mul_w | inst_mulh_w | inst_mulh_wu |  // ex7
-        inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu;  // NOTE: ex7
+        inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu |  // NOTE: ex7
+        inst_csrxchg;  // NOTE: ex8 csrxchg 的 rj 是写掩码
 
     // ex4
     assign src2_is_rk  = inst_add_w | inst_sub_w | inst_slt | inst_sltu | inst_nor | inst_and | inst_or | inst_xor |
@@ -445,9 +502,10 @@ module ID_stage (
         inst_mul_w | inst_mulh_w | inst_mulh_wu |  // ex7
         inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu;  // NOTE: ex7
 
-    // ex5 / ex6
+    // ex5 / ex6 / ex8
     assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w | inst_st_b | inst_st_h
-                         | inst_blt | inst_bge | inst_bltu | inst_bgeu;
+                         | inst_blt | inst_bge | inst_bltu | inst_bgeu
+                         | inst_csrwr | inst_csrxchg;  // NOTE: ex8 读原 rd 作为 csr 写数据
 
     // NOTE: 寄存器堆
     wire [ 4:0] rf_raddr1;
@@ -506,19 +564,25 @@ module ID_stage (
 
     //NOTE : 将 ID 信息传入到 EXE 阶段
     assign ds_to_es_bus = {
-        alu_op,  // [160:142]  // ex7
-        mem_size,  // [141:140]
-        mem_sign,  // [139]
-        src1_is_pc,  // [138]
-        src2_is_imm,  // [137]
-        src2_is_4,  // [136]
-        gr_we,  // [135]
-        mem_we,  // [134]
-        dest,  // [133:129]
-        imm,  // [128:97]
-        rj_value,  // [96:65]
-        rkd_value,  // [64:33]
-        ds_pc,  // [32:1]
+        alu_op,  // [210:192]  // ex7
+        mem_size,  // [191:190]
+        mem_sign,  // [189]
+        src1_is_pc,  // [188]
+        src2_is_imm,  // [187]
+        src2_is_4,  // [186]
+        gr_we,  // [185]
+        mem_we,  // [184]
+        dest,  // [183:179]
+        imm,  // [178:147]
+        rj_value,  // [146:115]
+        rkd_value,  // [114:83]
+        ds_pc,  // [82:51]
+        csr_wmask,  // [50:19]  // ex8
+        csr_addr,  // [18:5]  // ex8
+        csr_we,  // [4]  // ex8
+        res_from_csr,  // [3]  // ex8
+        ex_ertn,  // [2]  // ex8
+        ex_syscall,  // [1]  // ex8
         res_from_mem  // [0]
     };
 
@@ -548,8 +612,8 @@ module ID_stage (
 
     assign es_fwd_en1 = es_match1 && es_ready_go && !es_late;
     assign es_fwd_en2 = es_match2 && es_ready_go && !es_late;
-    assign ms_fwd_en1 = ms_match1 && !ms_res_from_mem;
-    assign ms_fwd_en2 = ms_match2 && !ms_res_from_mem;
+    assign ms_fwd_en1 = ms_match1 && !ms_res_from_mem && !ms_res_from_csr;  // ex8
+    assign ms_fwd_en2 = ms_match2 && !ms_res_from_mem && !ms_res_from_csr;  // ex8
     assign ws_fwd_en1 = rf_we && (rf_waddr != 5'd0) && src1_is_rj && (rf_waddr == rf_raddr1);
     assign ws_fwd_en2 = rf_we && (rf_waddr != 5'd0) && src2_is_rkd && (rf_waddr == rf_raddr2);
 
@@ -557,14 +621,15 @@ module ID_stage (
     assign rf_rdata1_fwd = es_fwd_en1 ? es_fwd_data : ms_fwd_en1 ? ms_fwd_data : ws_fwd_en1 ? rf_wdata : rf_rdata1;
     assign rf_rdata2_fwd = es_fwd_en2 ? es_fwd_data : ms_fwd_en2 ? ms_fwd_data : ws_fwd_en2 ? rf_wdata : rf_rdata2;
 
-    // NOTE: ex3 / ex6 / ex7
+    // NOTE: ex3 / ex6 / ex7 / ex8
     // NOTE: 这里发现, 如果将乘法结果在 EXE 阶段送回, 会导致超时, 因此需要留到后面的阶段送回
-    assign es_late = es_res_from_mem | es_is_mul;
+    // NOTE: ex8 csr 结果要到 WB 才出现, 同样不能在 EXE/MEM 阶段送回
+    assign es_late = es_res_from_mem | es_is_mul | es_res_from_csr;
 
     // NOTE: ex7 前递优先级是 EXE > MEM > WB
     // NOTE: 实际上, 如果需要的是 EXE 阶段的, 那么就没必要继续检查 MEM 阶段了, 
-    assign late_use1 = es_match1 ? es_late : (ms_match1 & ms_res_from_mem);
-    assign late_use2 = es_match2 ? es_late : (ms_match2 & ms_res_from_mem);
+    assign late_use1 = es_match1 ? es_late : (ms_match1 & (ms_res_from_mem | ms_res_from_csr));
+    assign late_use2 = es_match2 ? es_late : (ms_match2 & (ms_res_from_mem | ms_res_from_csr));
 
     assign late_use = late_use1 | late_use2;
 

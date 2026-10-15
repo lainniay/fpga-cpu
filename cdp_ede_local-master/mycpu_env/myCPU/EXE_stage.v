@@ -32,6 +32,7 @@ module EXE_stage (
     output wire [31:0] es_fwd_data,
     output wire        es_res_from_mem,
     output wire        es_is_mul,        // ex7
+    output wire        es_res_from_csr,  // ex8
 
     // NOTE: ex7
     output wire es_ready_go
@@ -57,19 +58,25 @@ module EXE_stage (
     // 存储 ds_to_es_bus 中的瞬间信号
     reg  [`DS_TO_ES_BUS_WD-1:0] ds_to_es_bus_r;
 
-    wire [                18:0] alu_op;  // [160:142]  // ex7
-    wire [                 1:0] mem_size;  // [141:140]
-    wire                        mem_sign;  // [139]
-    wire                        src1_is_pc;  // [138]
-    wire                        src2_is_imm;  // [137]
-    wire                        src2_is_4;  // [136]  reserved, imm 中已包含该常数 4
-    wire                        gr_we;  // [135]
-    wire                        mem_we;  // [134]
-    wire [                 4:0] dest;  // [133:129]
-    wire [                31:0] imm;  // [128:97]
-    wire [                31:0] rj_value;  // [96:65]
-    wire [                31:0] rkd_value;  // [64:33]
-    wire [                31:0] es_pc;  // [32:1]
+    wire [                18:0] alu_op;  // [210:192]  // ex7
+    wire [                 1:0] mem_size;  // [191:190]
+    wire                        mem_sign;  // [189]
+    wire                        src1_is_pc;  // [188]
+    wire                        src2_is_imm;  // [187]
+    wire                        src2_is_4;  // [186]  reserved, imm 中已包含该常数 4
+    wire                        gr_we;  // [185]
+    wire                        mem_we;  // [184]
+    wire [                 4:0] dest;  // [183:179]
+    wire [                31:0] imm;  // [178:147]
+    wire [                31:0] rj_value;  // [146:115]
+    wire [                31:0] rkd_value;  // [114:83]
+    wire [                31:0] es_pc;  // [82:51]
+    wire [                31:0] csr_wmask;  // [50:19]  // ex8
+    wire [                13:0] csr_addr;  // [18:5]  // ex8
+    wire                        csr_we;  // [4]  // ex8
+    wire                        res_from_csr;  // [3]  // ex8
+    wire                        ex_ertn;  // [2]  // ex8
+    wire                        ex_syscall;  // [1]  // ex8
     wire                        res_from_mem;  // [0]
 
     assign {
@@ -86,6 +93,12 @@ module EXE_stage (
         rj_value,
         rkd_value,
         es_pc,
+        csr_wmask,
+        csr_addr,
+        csr_we,
+        res_from_csr,
+        ex_ertn,
+        ex_syscall,
         res_from_mem
     } = ds_to_es_bus_r;
 
@@ -177,12 +190,18 @@ module EXE_stage (
 
     // EXE -> MEM
     assign es_to_ms_bus = {
-        es_pc,  // [106:75]
-        mem_we,  // [74]
-        gr_we,  // [73]
-        dest,  // [72:68]
-        es_result,  // [67:36]  // ex7
-        rkd_value,  // [35:4]
+        es_pc,  // [156:125]
+        mem_we,  // [124]
+        gr_we,  // [123]
+        dest,  // [122:118]
+        es_result,  // [117:86]  // ex7
+        rkd_value,  // [85:54]
+        csr_wmask,  // [53:22]  // ex8
+        csr_addr,  // [21:8]  // ex8
+        csr_we,  // [7]  // ex8
+        res_from_csr,  // [6]  // ex8
+        ex_ertn,  // [5]  // ex8
+        ex_syscall,  // [4]  // ex8
         res_from_mem,  // [3]
         mem_size,  // [2:1]
         mem_sign  // [0]
@@ -209,6 +228,7 @@ module EXE_stage (
     // NOTE: ex7 前递路径不连接乘法结果
     assign es_fwd_data = es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;  // ex7
     assign es_res_from_mem = res_from_mem;
+    assign es_res_from_csr = res_from_csr;  // ex8
 
 endmodule
 

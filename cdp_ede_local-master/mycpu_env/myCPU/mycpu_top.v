@@ -57,8 +57,25 @@ module mycpu_top (
     wire                        es_res_from_mem;
     wire                        es_ready_go;  // ex7
     wire                        es_is_mul;  // ex7
+    wire                        es_res_from_csr;  // ex8
     wire [                31:0] ms_fwd_data;
     wire                        ms_res_from_mem;
+    wire                        ms_res_from_csr;  // ex8
+
+    // NOTE: ex8 CSR 访问端口, 以及 CSR 模块的输出
+    wire [                31:0] csr_rvalue;
+    wire                        csr_re;
+    wire                        csr_we;
+    wire [                13:0] csr_addr;
+    wire [                31:0] csr_wmask;
+    wire [                31:0] csr_wvalue;
+    wire                        wb_ex;
+    wire                        ertn_flush;
+    wire [                31:0] wb_pc;
+    wire [                 5:0] wb_ecode;
+    wire [                 8:0] wb_esubcode;
+    wire [                31:0] ex_entry;
+    wire [                31:0] ertn_entry;
 
     IF_stage u_if_stage (
         .clk            (clk),
@@ -94,11 +111,13 @@ module mycpu_top (
         .ms_valid      (ms_valid),
 
         .es_res_from_mem(es_res_from_mem),
-        .es_fwd_data   (es_fwd_data),
-        .es_ready_go   (es_ready_go),  // ex7
-        .es_is_mul     (es_is_mul),  // ex7
-        .ms_fwd_data   (ms_fwd_data),
-        .ms_res_from_mem(ms_res_from_mem)
+        .es_fwd_data    (es_fwd_data),
+        .es_ready_go    (es_ready_go),      // ex7
+        .es_is_mul      (es_is_mul),        // ex7
+        .es_res_from_csr(es_res_from_csr),  // ex8
+        .ms_fwd_data    (ms_fwd_data),
+        .ms_res_from_mem(ms_res_from_mem),
+        .ms_res_from_csr(ms_res_from_csr)   // ex8
     );
 
     EXE_stage u_exe_stage (
@@ -121,8 +140,9 @@ module mycpu_top (
 
         .es_fwd_data    (es_fwd_data),
         .es_res_from_mem(es_res_from_mem),
-        .es_ready_go    (es_ready_go),  // ex7
-        .es_is_mul      (es_is_mul)  // ex7
+        .es_ready_go    (es_ready_go),      // ex7
+        .es_is_mul      (es_is_mul),        // ex7
+        .es_res_from_csr(es_res_from_csr)   // ex8
     );
 
     MEM_stage u_mem_stage (
@@ -141,7 +161,8 @@ module mycpu_top (
         .ms_valid       (ms_valid),
 
         .ms_fwd_data    (ms_fwd_data),
-        .ms_res_from_mem(ms_res_from_mem)
+        .ms_res_from_mem(ms_res_from_mem),
+        .ms_res_from_csr(ms_res_from_csr)   // ex8
     );
 
     WB_stage u_wb_stage (
@@ -151,10 +172,42 @@ module mycpu_top (
         .ms_to_ws_valid (ms_to_ws_valid),
         .ms_to_ws_bus   (ms_to_ws_bus),
         .ws_to_rf_bus   (ws_to_rf_bus),
+        // NOTE: ex8
+        .csr_rvalue     (csr_rvalue),
+        .csr_re         (csr_re),
+        .csr_we         (csr_we),
+        .csr_addr       (csr_addr),
+        .csr_wmask      (csr_wmask),
+        .csr_wvalue     (csr_wvalue),
+        .wb_ex          (wb_ex),
+        .ertn_flush     (ertn_flush),
+        .wb_pc          (wb_pc),
+        .wb_ecode       (wb_ecode),
+        .wb_esubcode    (wb_esubcode),
         .ws_pc          (ws_pc),
         .ws_rf_we       (ws_rf_we),
         .ws_dest        (ws_dest),
         .ws_final_result(ws_final_result)
+    );
+
+    // NOTE: ex8 异常和中断还没实现跳转, 先只把 WB 的事件接过来改 CSR
+    //       ex_entry / ertn_entry 也要等做 flush 和取指重定向时再接入 IF
+    CSR u_csr (
+        .clk        (clk),
+        .reset      (reset),
+        .csr_re     (csr_re),
+        .csr_addr   (csr_addr),
+        .csr_rvalue (csr_rvalue),
+        .csr_we     (csr_we),
+        .csr_wmask  (csr_wmask),
+        .csr_wvalue (csr_wvalue),
+        .wb_ex      (wb_ex),
+        .wb_pc      (wb_pc),
+        .wb_ecode   (wb_ecode),
+        .wb_esubcode(wb_esubcode),
+        .ertn_flush (ertn_flush),
+        .ex_entry   (ex_entry),
+        .ertn_entry (ertn_entry)
     );
 
     assign debug_wb_pc       = ws_pc;

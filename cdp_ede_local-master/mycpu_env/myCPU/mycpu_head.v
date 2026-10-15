@@ -25,45 +25,64 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 //  DS_TO_ES_BUS_WD: ID -> EXE 总线位宽
-//    [160:142] alu_op       : ALU 操作码
-//    [141:140] mem_size     : 访存宽度(00=字 01=字节 10=半字) ex6
-//    [139]     mem_sign     : 访存符号扩展 ex6
-//    [138]     src1_is_pc   : Src1 == PC?
-//    [137]     src2_is_imm  : Src2 == Imm?
-//    [136]     src2_is_4    : Src2 == 4?
-//    [135]     gr_we        : GR 写使能
-//    [134]     mem_we       : Mem 写使能
-//    [133:129] dest         : 目的寄存器号
-//    [128:97]  imm          : 立即数(已扩展)
-//    [96:65]   rj_value     : rj 读出值
-//    [64:33]   rkd_value    : rk/rd 读出值
-//    [32:1]    ds_pc        : PC
+//    [210:192] alu_op       : ALU 操作码
+//    [191:190] mem_size     : 访存宽度(00=字 01=字节 10=半字) ex6
+//    [189]     mem_sign     : 访存符号扩展 ex6
+//    [188]     src1_is_pc   : Src1 == PC?
+//    [187]     src2_is_imm  : Src2 == Imm?
+//    [186]     src2_is_4    : Src2 == 4?
+//    [185]     gr_we        : GR 写使能
+//    [184]     mem_we       : Mem 写使能
+//    [183:179] dest         : 目的寄存器号
+//    [178:147] imm          : 立即数(已扩展)
+//    [146:115] rj_value     : rj 读出值
+//    [114:83]  rkd_value    : rk/rd 读出值
+//    [82:51]   ds_pc        : PC
+//    [50:19]   csr_wmask    : csr 写掩码 ex8
+//    [18:5]    csr_addr     : csr 寄存器号 ex8
+//    [4]       csr_we       : csr 写使能 ex8
+//    [3]       res_from_csr : 结果来自 CSR? ex8
+//    [2]       ex_ertn      : ertn 指令 ex8
+//    [1]       ex_syscall   : syscall 指令 ex8
 //    [0]       res_from_mem : 结果来自 Mem?
 ////////////////////////////////////////////////////////////////////////////////
-`define DS_TO_ES_BUS_WD 161  // ex7
+`define DS_TO_ES_BUS_WD 211  // ex8
 
 ////////////////////////////////////////////////////////////////////////////////
 //  ES_TO_MS_BUS_WD: EXE -> MEM 总线位宽
-//    [106:75]  es_pc         : PC
-//    [74]      mem_we        : Mem 写使能
-//    [73]      gr_we         : GR 写使能
-//    [72:68]   dest          : 目的寄存器号
-//    [67:36]   es_alu_result : ALU 结果
-//    [35:4]    rkd_value     : 存数数据
+//    [156:125] es_pc         : PC
+//    [124]     mem_we        : Mem 写使能
+//    [123]     gr_we         : GR 写使能
+//    [122:118] dest          : 目的寄存器号
+//    [117:86]  es_alu_result : ALU 结果
+//    [85:54]   rkd_value     : 存数数据
+//    [53:22]   csr_wmask     : csr 写掩码 ex8
+//    [21:8]    csr_addr      : csr 寄存器号 ex8
+//    [7]       csr_we        : csr 写使能 ex8
+//    [6]       res_from_csr  : 结果来自 CSR? ex8
+//    [5]       ex_ertn       : ertn 指令 ex8
+//    [4]       ex_syscall    : syscall 指令 ex8
 //    [3]       res_from_mem  : 结果来自 Mem?
 //    [2:1]     mem_size      : 访存宽度(00=字 01=字节 10=半字) ex6
 //    [0]       mem_sign      : 访存符号扩展 ex6
 ////////////////////////////////////////////////////////////////////////////////
-`define ES_TO_MS_BUS_WD 107
+`define ES_TO_MS_BUS_WD 157  // ex8
 
 ////////////////////////////////////////////////////////////////////////////////
 //  MS_TO_WS_BUS_WD: MEM -> WB 总线位宽
-//    [69:38]  ms_pc           : PC
-//    [37]     gr_we           : GR 写使能
-//    [36:32]  dest            : 目的寄存器号
-//    [31:0]   ms_final_result : 最终结果
+//    [151:120] ms_pc           : PC
+//    [119]     gr_we           : GR 写使能
+//    [118:114] dest            : 目的寄存器号
+//    [113:82]  ms_final_result : 最终结果
+//    [81:50]   csr_wmask       : csr 写掩码 ex8
+//    [49:36]   csr_addr        : csr 寄存器号 ex8
+//    [35]      csr_we          : csr 写使能 ex8
+//    [34]      res_from_csr    : 结果来自 CSR? ex8
+//    [33]      ex_ertn         : ertn 指令 ex8
+//    [32]      ex_syscall      : syscall 指令 ex8
+//    [31:0]    csr_wvalue      : csr 写数据(原 rd 值) ex8
 ////////////////////////////////////////////////////////////////////////////////
-`define MS_TO_WS_BUS_WD 70
+`define MS_TO_WS_BUS_WD 152  // ex8
 
 ////////////////////////////////////////////////////////////////////////////////
 //  WS_TO_RF_BUS_WD: WB -> 寄存器堆写端口总线位宽(与指导书 ID_stage 注释一致)

@@ -28,7 +28,10 @@ module MEM_stage (
     output wire [31:0] ms_fwd_data,
 
     // NOTE: ex6 timing: 告诉 ID 本级的 MEM 指令是否是 load
-    output wire ms_res_from_mem
+    output wire ms_res_from_mem,
+
+    // NOTE: ex8 告诉 ID 本级的 MEM 指令是否是 csr 指令
+    output wire ms_res_from_csr
 );
 
     // 基本握手协议
@@ -46,6 +49,12 @@ module MEM_stage (
     wire [                 4:0] dest;
     wire [                31:0] ms_alu_result;
     wire [                31:0] ms_rkd_value;
+    wire [                31:0] csr_wmask;  // ex8
+    wire [                13:0] csr_addr;  // ex8
+    wire                        csr_we;  // ex8
+    wire                        res_from_csr;  // ex8
+    wire                        ex_ertn;  // ex8
+    wire                        ex_syscall;  // ex8
     wire                        res_from_mem;
     wire [                 1:0] mem_size;
     wire                        mem_sign;
@@ -57,6 +66,12 @@ module MEM_stage (
         dest,
         ms_alu_result,
         ms_rkd_value,
+        csr_wmask,
+        csr_addr,
+        csr_we,
+        res_from_csr,
+        ex_ertn,
+        ex_syscall,
         res_from_mem,
         mem_size,
         mem_sign
@@ -84,7 +99,20 @@ module MEM_stage (
     // NOTE: 最终写回的数据
     assign ms_final_result = res_from_mem ? ms_load_data : ms_alu_result;
 
-    assign ms_to_ws_bus = {ms_pc, gr_we, dest, ms_final_result};
+    // NOTE: ex8 csr 写数据取原 rd 值, ms_final_result 对 csr 指令是无效的
+    assign ms_to_ws_bus = {
+        ms_pc,  // [151:120]
+        gr_we,  // [119]
+        dest,  // [118:114]
+        ms_final_result,  // [113:82]
+        csr_wmask,  // [81:50]  // ex8
+        csr_addr,  // [49:36]  // ex8
+        csr_we,  // [35]  // ex8
+        res_from_csr,  // [34]  // ex8
+        ex_ertn,  // [33]  // ex8
+        ex_syscall,  // [32]  // ex8
+        ms_rkd_value  // [31:0]  // ex8 csr_wvalue
+    };
 
     always @(posedge clk) begin
         if (reset) begin
@@ -99,15 +127,16 @@ module MEM_stage (
     end
 
     // NOTE: ex2
-    assign ms_valid = ms_valid_r;
-    assign ms_gr_we = gr_we;
-    assign ms_dest = dest;
+    assign ms_valid        = ms_valid_r;
+    assign ms_gr_we        = gr_we;
+    assign ms_dest         = dest;
 
     // NOTE: ex3
     // NOTE: ex6 timing: 只前递已寄存的 ALU 结果; load 数据要等到 WB 才能前递,
     //                  否则 data_ram -> 前递 -> ID 分支比较 -> IF 的组合路径过长
     assign ms_fwd_data     = ms_alu_result;
     assign ms_res_from_mem = res_from_mem;
+    assign ms_res_from_csr = res_from_csr;  // ex8
 
 endmodule
 

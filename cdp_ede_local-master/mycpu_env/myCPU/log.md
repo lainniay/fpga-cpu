@@ -10,6 +10,8 @@ IF -> ID -> EXE -> MEM -> WB
 
 每一个环节的 ready_to_go 都还是 1'b1.
 
+在 ex1 中, 总线内部包含了一些后续阶段不需要用到的信息, 比如说 `rkd_value`, `rkd_value` 只会在 EXE 阶段生成 `data_sram_we`.
+
 # Ex2
 
 当后面的指令需要用到前面的指令的结果的时候, 可能前面的指令还没有到 WB, 此时, 如果后面的指令在 ID Read Register 的话, 就会读到错误的数据.
@@ -20,7 +22,7 @@ IF -> ID -> EXE -> MEM -> WB
 
 因此, 这样的设计, 只是在 ID 阶段的指令, 明确和 EXE, MEM, WB 阶段冲突的时候, 才会进行回传, 不会破坏正常的五级流水线.
 
-# Ex3 
+# Ex3
 
 由于 Ex2 会导致无论是什么指令, 都只会在 WB 阶段写回, 但是实际上部分指令已经在 EXE, MEM 阶段就已经完成计算, 可以进行写回了, 因此, Ex3 做的事情就是使用 EXE, MEM 里面比较新的数据, 替换 WB 中比较旧的数据.
 
@@ -140,9 +142,7 @@ pcaddu12i:
 
 div_start 只启动一次除法, div_started 记录当前指令已经启动. done 在启动时清零, 完成后保持为 1, 直到下一次启动. 因此 es_ready_go 需要同时检查 div_started 和 done, 避免误用上一条除法的完成状态.
 
-ID 需要等待 EXE 的除法完成后才能使用回传结果. div 类指令选择商, mod 类指令选择余数.
-
-经过测试, mul 直接在 EXE 阶段回传会导致时序超时, 因此乘法结果只送入 MEM, 依赖乘法结果的指令在 ID 等待, 到 MEM 阶段再进行回传.
+> 经过测试, mul 直接在 EXE 阶段回传会导致时序超时, 因此乘法结果只送入 MEM, 依赖乘法结果的指令在 ID 等待, 到 MEM 阶段再进行回传.
 
 ```c
 mul.w:
@@ -168,4 +168,46 @@ div.wu:
 
 mod.wu:
     rd = unsigned(rj) % unsigned(rk);
+```
+
+# Ex8
+
+加上指令: csrrd, csrwr, csrxchg, syscall, ertn.
+
+| 指令 | 大致含义 |
+|---|---|
+| `csrrd` | 把 CSR 的值读进 rd |
+| `csrwr` | 交换 rd 和 CSR 的值 |
+| `csrxchg` | 按 rj 的掩码写 CSR, 同时取回 CSR 旧值 |
+| `syscall` | 触发系统调用异常 |
+| `ertn` | 从异常处理程序返回 |
+
+```c
+csrrd rd, csr_addr:
+    rd = CSR[csr_addr];
+
+csrwr rd, csr:
+    old = CSR[csr_num];
+    CSR[csr_num] = rd;
+    rd = old;
+
+csrxchg rd, rj, csr_num:
+    old = CSR[csr_num];
+    CSR[csr_num] = (old & ~rj) | (rd & rj);
+    rd = old;
+
+syscall:
+    PRMD.PPLV = CRMD.PLV;
+    PRMD.PIE  = CRMD.IE;
+    CRMD.PLV  = 0;
+    CRMD.IE   = 0;
+    ERA       = PC;
+    ESTAT.Ecode    = 0xb;
+    ESTAT.EsubCode = 0;
+    PC        = EENTRY;
+
+ertn:
+    CRMD.PLV = PRMD.PPLV;
+    CRMD.IE  = PRMD.PIE;
+    PC       = ERA;
 ```
