@@ -77,9 +77,16 @@ module mycpu_top (
     wire [                31:0] ex_entry;
     wire [                31:0] ertn_entry;
 
+    // NOTE: ex8
+    wire                        flush;
+    wire                        ms_redirect;
+    wire [                31:0] redirect_pc = wb_ex ? ex_entry : ertn_entry;
+
     IF_stage u_if_stage (
         .clk            (clk),
         .reset          (reset),
+        .flush          (flush),            // ex8
+        .redirect_pc    (redirect_pc),      // ex8
         .ds_allowin     (ds_allowin),
         .fs_to_ds_valid (fs_to_ds_valid),
         .fs_to_ds_bus   (fs_to_ds_bus),
@@ -94,6 +101,7 @@ module mycpu_top (
     ID_stage u_id_stage (
         .clk           (clk),
         .reset         (reset),
+        .flush         (flush),           // ex8
         .es_allowin    (es_allowin),
         .ds_to_es_valid(ds_to_es_valid),
         .ds_to_es_bus  (ds_to_es_bus),
@@ -123,6 +131,8 @@ module mycpu_top (
     EXE_stage u_exe_stage (
         .clk            (clk),
         .reset          (reset),
+        .flush          (flush),            // ex8
+        .ms_redirect    (ms_redirect),      // ex8
         .ms_allowin     (ms_allowin),
         .es_to_ms_valid (es_to_ms_valid),
         .es_to_ms_bus   (es_to_ms_bus),
@@ -148,6 +158,7 @@ module mycpu_top (
     MEM_stage u_mem_stage (
         .clk            (clk),
         .reset          (reset),
+        .flush          (flush),            // ex8
         .ws_allowin     (ws_allowin),
         .ms_to_ws_valid (ms_to_ws_valid),
         .ms_to_ws_bus   (ms_to_ws_bus),
@@ -162,7 +173,8 @@ module mycpu_top (
 
         .ms_fwd_data    (ms_fwd_data),
         .ms_res_from_mem(ms_res_from_mem),
-        .ms_res_from_csr(ms_res_from_csr)   // ex8
+        .ms_res_from_csr(ms_res_from_csr),  // ex8
+        .ms_redirect    (ms_redirect)       // ex8
     );
 
     WB_stage u_wb_stage (
@@ -184,14 +196,14 @@ module mycpu_top (
         .wb_pc          (wb_pc),
         .wb_ecode       (wb_ecode),
         .wb_esubcode    (wb_esubcode),
+        .flush          (flush),           // ex8
         .ws_pc          (ws_pc),
         .ws_rf_we       (ws_rf_we),
         .ws_dest        (ws_dest),
         .ws_final_result(ws_final_result)
     );
 
-    // NOTE: ex8 异常和中断还没实现跳转, 先只把 WB 的事件接过来改 CSR
-    //       ex_entry / ertn_entry 也要等做 flush 和取指重定向时再接入 IF
+    // NOTE: ex8 
     CSR u_csr (
         .clk        (clk),
         .reset      (reset),

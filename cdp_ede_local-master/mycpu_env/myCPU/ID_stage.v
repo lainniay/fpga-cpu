@@ -8,6 +8,9 @@ module ID_stage (
     input wire clk,
     input wire reset,
 
+    // NOTE: ex8 
+    input wire flush,
+
     // ID -> EXE
     input  wire                        es_allowin,
     output wire                        ds_to_es_valid,
@@ -101,6 +104,9 @@ module ID_stage (
 
     always @(posedge clk) begin
         if (reset) begin
+            ds_valid <= 1'b0;
+        end
+        else if (flush) begin
             ds_valid <= 1'b0;
         end
         else if (ds_allowin) begin
@@ -466,11 +472,10 @@ module ID_stage (
     assign mem_sign = inst_ld_b | inst_ld_h;
     assign dst_is_r1 = inst_bl;
 
-    // NOTE: ex8 三条 csr 指令的结果都来自 CSR, 要到 WB 才能拿到
     assign res_from_csr = inst_csrrd | inst_csrwr | inst_csrxchg;
-    // NOTE: ex8 csrwr 写整个寄存器, csrxchg 用 rj 当掩码
     assign csr_we = inst_csrwr | inst_csrxchg;
     assign csr_wmask = inst_csrwr ? 32'hffffffff : rj_value;
+
     // NOTE: ex8
     assign ex_syscall = inst_syscall;
     assign ex_ertn = inst_ertn;

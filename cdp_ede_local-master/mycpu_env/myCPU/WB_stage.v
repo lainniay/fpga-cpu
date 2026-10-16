@@ -29,6 +29,9 @@ module WB_stage (
     output wire [ 5:0] wb_ecode,
     output wire [ 8:0] wb_esubcode,
 
+    // NOTE: ex8
+    output wire flush,
+
     // NOTE: 为了 DEBUG, trace 等输出的数据
     output wire [31:0] ws_pc,
     output wire        ws_rf_we,
@@ -73,6 +76,9 @@ module WB_stage (
     assign wb_ex = ws_valid && ms_ex_syscall;
     assign ertn_flush = ws_valid && ms_ex_ertn && !wb_ex;
 
+    // NOTE: ex8 
+    assign flush = wb_ex | ertn_flush;
+
     assign wb_pc = ms_pc;
 
     // NOTE: ex8 目前只有 syscall 一种异常来源, 所以异常码写死为 SYS
@@ -104,6 +110,10 @@ module WB_stage (
 
     always @(posedge clk) begin
         if (reset) begin
+            ws_valid <= 1'b0;
+        end
+        // NOTE: ex8 : flush 影响的是下一拍, 为了阻止 MEM 的指令进入 WB
+        else if (flush) begin
             ws_valid <= 1'b0;
         end
         else if (ws_allowin) begin

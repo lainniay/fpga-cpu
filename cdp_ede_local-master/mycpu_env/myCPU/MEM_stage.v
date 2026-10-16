@@ -7,6 +7,9 @@ module MEM_stage (
     input wire clk,
     input wire reset,
 
+    // NOTE: ex8
+    input wire flush,
+
     // MEM -> WB
     input  wire                        ws_allowin,
     output wire                        ms_to_ws_valid,
@@ -19,7 +22,7 @@ module MEM_stage (
 
     input wire [31:0] data_sram_rdata,
 
-    // NOTE: ex2 
+    // NOTE: ex2
     output wire [4:0] ms_dest,
     output wire       ms_gr_we,
     output wire       ms_valid,
@@ -31,7 +34,10 @@ module MEM_stage (
     output wire ms_res_from_mem,
 
     // NOTE: ex8 告诉 ID 本级的 MEM 指令是否是 csr 指令
-    output wire ms_res_from_csr
+    output wire ms_res_from_csr,
+
+    // NOTE: ex8 由于此时, EXE 阶段的 store 会发生访存, 因此需要 syscall/ertn 在 mem 阶段就阻止
+    output wire ms_redirect
 );
 
     // 基本握手协议
@@ -77,7 +83,7 @@ module MEM_stage (
         mem_sign
     } = es_to_ms_bus_r;
 
-    // NOTE: ex6 
+    // NOTE: ex6
     wire [ 7:0] ms_byte;
     wire [15:0] ms_half;
     wire [31:0] ms_load_data;
@@ -118,6 +124,10 @@ module MEM_stage (
         if (reset) begin
             ms_valid_r <= 1'b0;
         end
+        // NOTE: ex8 
+        else if (flush) begin
+            ms_valid_r <= 1'b0;
+        end
         else if (ms_allowin) begin
             ms_valid_r <= es_to_ms_valid;
         end
@@ -130,6 +140,9 @@ module MEM_stage (
     assign ms_valid        = ms_valid_r;
     assign ms_gr_we        = gr_we;
     assign ms_dest         = dest;
+
+    // NOTE: ex8 提前一拍通知 EXE 不要访存, ms_valid 防止 bubble 误报
+    assign ms_redirect     = ms_valid && (ex_syscall | ex_ertn);
 
     // NOTE: ex3
     // NOTE: ex6 timing: 只前递已寄存的 ALU 结果; load 数据要等到 WB 才能前递,

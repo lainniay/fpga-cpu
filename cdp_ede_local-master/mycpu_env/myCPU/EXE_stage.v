@@ -7,6 +7,11 @@ module EXE_stage (
     input wire clk,
     input wire reset,
 
+    // NOTE: ex8 
+    input wire flush,
+    // NOTE: ex8 MEM 里有一条即将重定向的指令, 本级不能访存
+    input wire ms_redirect,
+
     // EXE -> MEM 阶段握手信号
     input  wire                        ms_allowin,
     output wire                        es_to_ms_valid,
@@ -23,7 +28,7 @@ module EXE_stage (
     output wire [31:0] data_sram_addr,
     output wire [31:0] data_sram_wdata,
 
-    // NOTE: Ex2: 
+    // NOTE: Ex2:
     output wire [4:0] es_dest,
     output wire       es_gr_we,
     output wire       es_valid,
@@ -39,7 +44,7 @@ module EXE_stage (
 );
 
     // NOTE: EXE 阶段握手信号
-    reg         es_valid_r;  // ex2: 
+    reg         es_valid_r;  // ex2:
     // NOTE: ex7 除法是多周期指令: 未完成时 ready_go = 0
     wire        es_is_div;
     wire        div_start;
@@ -50,7 +55,7 @@ module EXE_stage (
     wire [31:0] div_remainder;
     reg         div_started;
 
-    // NOTE: ex7 
+    // NOTE: ex7
     assign es_ready_go    = !es_is_div | (div_started & div_done);
     assign es_allowin     = !es_valid || (es_ready_go && ms_allowin);
     assign es_to_ms_valid = es_valid && es_ready_go;
@@ -103,7 +108,7 @@ module EXE_stage (
     } = ds_to_es_bus_r;
 
 
-    // NOTE: ALU 
+    // NOTE: ALU
     wire [31:0] alu_src1;
     wire [31:0] alu_src2;
     wire [31:0] es_alu_result;
@@ -126,11 +131,16 @@ module EXE_stage (
     assign div_signed   = alu_op[15] | alu_op[16];  // div.w / mod.w
     assign div_take_rem = alu_op[16] | alu_op[18];  // mod.w / mod.wu
 
-    // NOTE: ex7 
-    assign div_start = es_valid && es_is_div && !div_started;
+    // NOTE: ex7
+    // NOTE: ex7
+    assign div_start = es_valid && es_is_div && !div_started && !flush;  // ex8
 
+    // NOTE: ex8 需要清空除法状态, 但是不需要清空除法器, 除法器正在运行的除法正常运行, 就算输出结果也会被 div_startd 拦住
     always @(posedge clk) begin
         if (reset) begin
+            div_started <= 1'b0;
+        end
+        else if (flush) begin
             div_started <= 1'b0;
         end
         else if (div_start) begin
@@ -153,15 +163,19 @@ module EXE_stage (
         .remainder(div_remainder)
     );
 
-    // NOTE: ex7 
+    // NOTE: ex7
     assign es_is_mul = alu_op[12] | alu_op[13] | alu_op[14];
 
-    // NOTE: ex7 
+    // NOTE: ex7
     wire [31:0] es_result;
     // NOTE: ex7 乘法只进入 MEM 数据通路, 流入 MEM 后续的阶段送回
     assign es_result = es_is_mul ? es_mul_result : es_fwd_data;  // ex7
 
-    assign data_sram_en = es_valid && (res_from_mem | mem_we);
+    // NOTE: ex8 更老的指令要重定向时, 本级不能产生访存副作用
+    //       ms_redirect 盖住 "异常指令在 MEM" 那一拍, flush 盖住 "异常指令在 WB" 那一拍
+    wire ex_redirect = ms_redirect | flush;
+
+    assign data_sram_en = es_valid && (res_from_mem | mem_we) && !ex_redirect;
 
     // NOTE: ex6 按访存宽度和地址低两位生成字节写使能
     wire [ 3:0] mem_we_byte;
@@ -184,7 +198,8 @@ module EXE_stage (
                        (mem_size == 2'b10) ? {2{rkd_value[15: 0]}} :
                        rkd_value;
 
-    assign data_sram_we = (es_valid && mem_we) ? mem_we_mask : 4'h0;
+    // ex8: 在 redirect 
+    assign data_sram_we = (es_valid && mem_we && !ex_redirect) ? mem_we_mask : 4'h0;
     assign data_sram_addr = es_alu_result;
     assign data_sram_wdata = mem_wdata;
 
@@ -209,6 +224,10 @@ module EXE_stage (
 
     always @(posedge clk) begin
         if (reset) begin
+            es_valid_r <= 1'b0;
+        end
+        // NOTE: ex8 清空流水线, 需要比 allow_in 优先
+        else if (flush) begin
             es_valid_r <= 1'b0;
         end
         else if (es_allowin) begin
