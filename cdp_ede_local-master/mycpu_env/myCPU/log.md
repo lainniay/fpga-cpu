@@ -6,7 +6,7 @@
 IF -> ID -> EXE -> MEM -> WB
 ```
 
-5 个流程, 需要注意 [握手协议](file:///Users/lainniay/Code/FPGA/cdp_ede_local-master/mycpu_env/myCPU/Protocol.md).
+5 个流程, 需要注意 [握手协议](Protocol.md).
 
 每一个环节的 ready_to_go 都还是 1'b1.
 
@@ -181,6 +181,10 @@ mod.wu:
 | `csrxchg` | 按 rj 的掩码写 CSR, 同时取回 CSR 旧值 |
 | `syscall` | 触发系统调用异常 |
 | `ertn` | 从异常处理程序返回 |
+
+实际上, `csrrd`, `csrwr`, `csrxchg` 和普通的 gpr 指令区别不大, 只是操作对象换成了 CSR, 只有 `syscall` 和 `ertn` 会触发 flush, 以及 CSR 状态更新, 详情参考 [Expection 说明](expection.md).
+
+`csrrd`, `csrwr`, `csrxchg` 的结果需要在 WB 阶段才会拿到, 因此, 如果 ID 阶段需要这些指令的结果, 那么就只能阻塞等待, 而不能在 EXE, MEM 阶段提前回传.
 
 ```c
 csrrd rd, csr_addr:
