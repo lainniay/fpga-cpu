@@ -213,9 +213,7 @@ module ID_stage (
     assign rj       = ds_inst[9:5];
     assign rk       = ds_inst[14:10];
 
-    // NOTE: ex8
-    assign csr_addr = ds_inst[23:10];
-
+    
     assign i12      = ds_inst[21:10];
     assign i20      = ds_inst[24:5];
     assign i16      = ds_inst[25:10];
@@ -304,6 +302,12 @@ module ID_stage (
     // NOTE: ex8
     wire inst_syscall;
     wire inst_ertn;
+    // NOTE: ex9, TID 编号和三条计数器读取指令的译码信号.
+    localparam [13:0] CSR_TID=14'h0040;
+    wire inst_rdcntvl_w;
+    wire inst_rdcntvh_w;
+    wire inst_rdcntid;
+    wire [1:0] cnt_sel;
 
     assign inst_add_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
     assign inst_sub_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
@@ -368,6 +372,14 @@ module ID_stage (
     assign inst_syscall = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h16];
     // NOTE: ex8 ertn 的编码固定为 0x06483800
     assign inst_ertn = op_31_26_d[6'h01] & ds_inst[25] & ~ds_inst[24];
+
+    // NOTE: ex9, rj=0, rd 为目的寄存器
+    assign inst_rdcntvl_w = (ds_inst[31:10] == 22'h000018) && (rj == 5'd0);
+    assign inst_rdcntvh_w = (ds_inst[31:10] == 22'h000019) && (rj == 5'd0);
+    // NOTE: ex9, rd=0, 非零 rj 为目的寄存器
+    assign inst_rdcntid = (ds_inst[31:10] == 22'h000018) && (rd == 5'd0) && (rj != 5'd0);
+    // NOTE: ex9, 00=普通结果, 01=低32位, 10=高32位.
+    assign cnt_sel = inst_rdcntvl_w ? 2'b01 : inst_rdcntvh_w ? 2'b10 : 2'b00;
 
     // ex4 / ex6
     assign alu_op[0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_bl | inst_pcaddu12i
@@ -472,7 +484,8 @@ module ID_stage (
     assign mem_sign = inst_ld_b | inst_ld_h;
     assign dst_is_r1 = inst_bl;
 
-    assign res_from_csr = inst_csrrd | inst_csrwr | inst_csrxchg;
+    // NOTE: ex9, rdcntid 复用 WB 的 CSR 读取和结果选择通路.
+    assign res_from_csr = inst_csrrd | inst_csrwr | inst_csrxchg | inst_rdcntid;
     assign csr_we = inst_csrwr | inst_csrxchg;
     assign csr_wmask = inst_csrwr ? 32'hffffffff : rj_value;
 
@@ -485,8 +498,8 @@ module ID_stage (
                  & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu
                  & ~inst_syscall & ~inst_ertn;  // NOTE: ex8 两条都不写通用寄存器
     assign mem_we = inst_st_w | inst_st_b | inst_st_h;
-    // 5'd1 是 r1 寄存器编号
-    assign dest = dst_is_r1 ? 5'd1 : rd;
+    // NOTE: ex9, rdcntid 写 rj, bl 写 r1, 其余写结果的指令写 rd.
+    assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
 
     // NOTE: ex2
     // ex4
@@ -511,6 +524,10 @@ module ID_stage (
     assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w | inst_st_b | inst_st_h
                          | inst_blt | inst_bge | inst_bltu | inst_bgeu
                          | inst_csrwr | inst_csrxchg;  // NOTE: ex8 读原 rd 作为 csr 写数据
+
+    // NOTE: ex9, rdcntid 固定读取 TID, 普通 CSR 指令沿用指令中的编号.
+    assign csr_addr = inst_rdcntid ? CSR_TID : ds_inst[23:10];
+
 
     // NOTE: 寄存器堆
     wire [ 4:0] rf_raddr1;
@@ -569,6 +586,7 @@ module ID_stage (
 
     //NOTE : 将 ID 信息传入到 EXE 阶段
     assign ds_to_es_bus = {
+        cnt_sel, // NOTE: ex9, [212:211], 选择计数器高位或低位.
         alu_op,  // [210:192]  // ex7
         mem_size,  // [191:190]
         mem_sign,  // [189]

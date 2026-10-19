@@ -62,7 +62,7 @@ module EXE_stage (
 
     // 存储 ds_to_es_bus 中的瞬间信号
     reg  [`DS_TO_ES_BUS_WD-1:0] ds_to_es_bus_r;
-
+    wire [                 1:0] cnt_sel; // NOTE: ex9, [212:211], 当前 EXE 指令的计数结果选择.
     wire [                18:0] alu_op;  // [210:192]  // ex7
     wire [                 1:0] mem_size;  // [191:190]
     wire                        mem_sign;  // [189]
@@ -85,6 +85,7 @@ module EXE_stage (
     wire                        res_from_mem;  // [0]
 
     assign {
+        cnt_sel, // NOTE: ex9, 与 ID 总线的最高两位对应.
         alu_op,
         mem_size,
         mem_sign,
@@ -177,6 +178,16 @@ module EXE_stage (
 
     assign data_sram_en = es_valid && (res_from_mem | mem_we) && !ex_redirect;
 
+    // NOTE: ex9, 自由运行计数器和当前 EXE 指令的计数快照.
+    reg [63:0] stable_counter;
+    reg [31:0] es_cnt_value;
+
+    // NOTE: ex9, 采样时使用即将进入 EXE 的新指令选择字段.
+    wire [1:0] ds_cnt_sel;
+    assign ds_cnt_sel = ds_to_es_bus[`DS_TO_ES_BUS_WD-1:`DS_TO_ES_BUS_WD-2];
+
+    
+
     // NOTE: ex6 按访存宽度和地址低两位生成字节写使能
     wire [ 3:0] mem_we_byte;
     wire [ 3:0] mem_we_half;
@@ -222,6 +233,29 @@ module EXE_stage (
         mem_sign  // [0]
     };
 
+    // NOTE: ex9, 独立计数, 不受 valid, stall 或 flush 控制.
+    always @(posedge clk) begin
+        if(reset)
+            stable_counter <= 64'b0;
+        else 
+            stable_counter <= stable_counter + 64'd1;
+    end
+
+    // NOTE: ex9 指令进入 EXE 时取得一次固定快照
+    always @(posedge clk) begin
+        if(reset) begin
+            es_cnt_value <= 32'b0;
+        end
+        else if (!flush && ds_to_es_valid && es_allowin) begin
+            case (ds_cnt_sel)
+                2'b01: es_cnt_value <= stable_counter[31:0];
+                2'b10: es_cnt_value <= stable_counter[63:32];
+                default: es_cnt_value <= 32'b0;
+            endcase
+        end
+    end
+
+
     always @(posedge clk) begin
         if (reset) begin
             es_valid_r <= 1'b0;
@@ -245,7 +279,8 @@ module EXE_stage (
 
     // NOTE: Ex3 / ex7
     // NOTE: ex7 前递路径不连接乘法结果
-    assign es_fwd_data = es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;  // ex7
+    // NOTE: ex9, 计数快照同时供 ID 前递和后续 MEM 结果通路使用.
+    assign es_fwd_data = (cnt_sel != 2'b00) ? es_cnt_value : es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;  
     assign es_res_from_mem = res_from_mem;
     assign es_res_from_csr = res_from_csr;  // ex8
 
