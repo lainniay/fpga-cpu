@@ -30,7 +30,10 @@ module CSR (
     input wire        ertn_flush,   // ertn 是 expection return 的缩写
 
     output wire [31:0] ex_entry,
-    output wire [31:0] ertn_entry
+    output wire [31:0] ertn_entry,
+
+    // NOTE: csr 告知 id 当前有中断需要处理
+    output wire has_int
 );
 
   // 当前模式信息
@@ -57,6 +60,9 @@ module CSR (
   // NOTE: ex9, 定时中断清除寄存器(Timer Interrupt Clear, TICLR)的 CSR 编号.
   // NOTE: ex9, 该入口不保存数据, 软件向 bit0 有效写1表示清除, 读取恒为0.
   localparam [13:0] CSR_TICLR = 14'h0044;
+
+  // NOTE : ex9
+  localparam [13:0] CSR_ECFG = 14'h0004;
 
   // crmd.plv : 当前特权等级, 0 ~ 3
   reg [1:0] crmd_plv;
@@ -93,6 +99,8 @@ module CSR (
   // NOTE: ex9, 实际倒计时装入值为 {InitVal, 2'b0}, 周期模式每次到期都重新装入.
   reg [31:0] tcfg; // NOTE: ex9, 定时器配置寄存器(TCFG)的内容.
 
+  //
+  reg [12:0] ecfg_lie;
 
   wire [31:0] crmd_rvalue = {28'b0, 1'b1, crmd_ie, crmd_plv};
   wire [31:0] prmd_rvalue = {29'b0, prmd_pie, prmd_pplv};
@@ -109,15 +117,18 @@ module CSR (
 
   // NOTE: ex9, 当前已保存配置的读值, 该连线不额外保存一份配置.
   wire [31:0] tcfg_rvalue = tcfg;
+  wire [31:0] ecfg_rvalue = {19'b0,ecfg_lie};
 
   // NOTE: ex9, 掩码为1采用软件写数据, 为0保留旧配置, 得到本次写入后的候选配置.
   // NOTE: ex9, 此连线始终组合计算, 只有有效写入编号命中TCFG时才能保存它或据此重新装入.
   wire [31:0] tcfg_next = (tcfg_rvalue & ~csr_wmask) | (csr_wvalue & csr_wmask);
- 
+  wire [12:0] ecfg_next = (ecfg_rvalue[12:0] & ~csr_wmask[12:0]) | (csr_wmask[12:0] & csr_wvalue[12:0]) & 13'h1bff;
 
   assign ex_entry   = eentry_rvalue;
   // 返回地址由软件维护, ertn 不自动加 4。
   assign ertn_entry = era;
+
+  assign has_int = |((estat_rvalue[12:0] & ecfg_lie)) && crmd_ie;
 
   always @(*) begin
     csr_rvalue = 32'b0;
@@ -135,6 +146,7 @@ module CSR (
         CSR_TID :   csr_rvalue = tid; // NOTE: ex9, CSR 读取和 rdcntid 共用该读值.
         CSR_TCFG :  csr_rvalue = tcfg; // NOTE: ex9, 读取已保存的定时器配置.
         CSR_TVAL:   csr_rvalue = timer_cnt; // NOTE: ex9, 读取当前剩余计数, 软件写入无效果.
+        CSR_ECFG:   csr_rvalue = ecfg_rvalue;
         // NOTE: ex9, 定时中断清除寄存器(TICLR)使用默认读零行为, 不另设存储寄存器.
         default:    csr_rvalue = 32'b0;
       endcase
@@ -158,6 +170,7 @@ module CSR (
       save3          <= 32'b0;
       tid            <= 32'b0; // NOTE: ex9, 本课设将 TID 复位为0.
       tcfg           <= 32'b0; // NOTE: ex9, 复位关闭定时器, 计数和到期标志在各自时序块中复位.
+      ecfg_lie       <= 13'b0;
     end  // 进入内核态
     else if (wb_ex) begin
       // 存储当前的状态
@@ -197,6 +210,7 @@ module CSR (
         CSR_SAVE1: save1 <= (save1 & ~csr_wmask) | (csr_wvalue & csr_wmask);
         CSR_SAVE2: save2 <= (save2 & ~csr_wmask) | (csr_wvalue & csr_wmask);
         CSR_SAVE3: save3 <= (save3 & ~csr_wmask) | (csr_wvalue & csr_wmask);
+        CSR_ECFG:  ecfg_lie <= ecfg_next;
         default: begin
         end  // 未实现的 CSR: 读零, 写入无效果。
       endcase

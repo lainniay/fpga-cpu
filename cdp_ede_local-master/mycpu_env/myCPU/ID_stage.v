@@ -47,7 +47,13 @@ module ID_stage (
 
     // NOTE: ex8 csr 结果要到 WB 才能拿到, 与 res_from_mem 同类
     input wire es_res_from_csr,
-    input wire ms_res_from_csr
+    input wire ms_res_from_csr,
+
+    // 决定当前指令带不带中断
+    input wire es_csr_pending,
+    input wire ms_csr_pending,
+    input wire ws_csr_pending,
+    input wire has_int
 );
 
     // NOTE: ex2
@@ -88,7 +94,7 @@ module ID_stage (
     wire late_use;
     // NOTE: ex7
     wire es_late;
-    assign ds_ready_go    = !late_use;
+    // assign ds_ready_go    = !late_use;
 
     assign ds_allowin     = !ds_valid || (ds_ready_go && es_allowin);
     assign ds_to_es_valid = ds_valid && ds_ready_go;
@@ -308,6 +314,8 @@ module ID_stage (
     wire inst_rdcntvh_w;
     wire inst_rdcntid;
     wire [1:0] cnt_sel;
+    wire csr_pending;
+    wire ex_int;
 
     assign inst_add_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
     assign inst_sub_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
@@ -477,7 +485,7 @@ module ID_stage (
                            inst_st_h    ;
 
     // ex6: 所有 load 的结果都来自数据 RAM
-    assign res_from_mem = inst_ld_w | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu;
+    assign res_from_mem = ex_int ? 1'b0 : inst_ld_w | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu;
     // NOTE: ex6 访存宽度与符号扩展
     assign mem_size = (inst_ld_b | inst_ld_bu | inst_st_b) ? 2'b01 :
                       (inst_ld_h | inst_ld_hu | inst_st_h) ? 2'b10 : 2'b00;
@@ -485,19 +493,20 @@ module ID_stage (
     assign dst_is_r1 = inst_bl;
 
     // NOTE: ex9, rdcntid 复用 WB 的 CSR 读取和结果选择通路.
-    assign res_from_csr = inst_csrrd | inst_csrwr | inst_csrxchg | inst_rdcntid;
-    assign csr_we = inst_csrwr | inst_csrxchg;
+    assign res_from_csr = ex_int ? 1'b0 : inst_csrrd | inst_csrwr | inst_csrxchg | inst_rdcntid;
+    assign csr_we = ex_int ? 1'b0 : inst_csrwr | inst_csrxchg;
     assign csr_wmask = inst_csrwr ? 32'hffffffff : rj_value;
 
     // NOTE: ex8
-    assign ex_syscall = inst_syscall;
-    assign ex_ertn = inst_ertn;
+    assign ex_syscall = ex_int ? 1'b0 : inst_syscall;
+    assign ex_ertn = ex_int ? 1'b0 : inst_ertn;
 
     // ex5 / ex6 / ex8
-    assign gr_we = ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b
+    assign gr_we = ex_int ? 1'b0 :
+                    ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b
                  & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu
                  & ~inst_syscall & ~inst_ertn;  // NOTE: ex8 两条都不写通用寄存器
-    assign mem_we = inst_st_w | inst_st_b | inst_st_h;
+    assign mem_we = ex_int ? 1'b0 : inst_st_w | inst_st_b | inst_st_h;
     // NOTE: ex9, rdcntid 写 rj, bl 写 r1, 其余写结果的指令写 rd.
     assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
 
@@ -575,7 +584,7 @@ module ID_stage (
                         || inst_jirl
                         || inst_bl
                         || inst_b
-                       ) && ds_valid;
+                       ) && ds_valid && ds_ready_go && !ex_int && !flush;
     // ex5
     assign br_target = (inst_beq || inst_bne || inst_blt || inst_bge
                         || inst_bltu || inst_bgeu || inst_bl || inst_b)
@@ -586,6 +595,7 @@ module ID_stage (
 
     //NOTE : 将 ID 信息传入到 EXE 阶段
     assign ds_to_es_bus = {
+        ex_int,
         cnt_sel, // NOTE: ex9, [212:211], 选择计数器高位或低位.
         alu_op,  // [210:192]  // ex7
         mem_size,  // [191:190]
@@ -655,6 +665,12 @@ module ID_stage (
     assign late_use2 = es_match2 ? es_late : (ms_match2 & (ms_res_from_mem | ms_res_from_csr));
 
     assign late_use = late_use1 | late_use2;
+
+
+    // NOTE:ex9,
+    assign csr_pending = es_csr_pending || ms_csr_pending || ws_csr_pending;
+    assign ex_int = ds_valid && has_int && !csr_pending && !flush; //flush是 本拍已经清空，当前指令不应执行
+    assign ds_ready_go = !csr_pending && (ex_int || !late_use);
 
 endmodule
 

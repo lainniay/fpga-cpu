@@ -40,7 +40,10 @@ module EXE_stage (
     output wire        es_res_from_csr,  // ex8
 
     // NOTE: ex7
-    output wire es_ready_go
+    output wire es_ready_go,
+
+    // NOTE: ex9,
+    output wire es_csr_pending
 );
 
     // NOTE: EXE 阶段握手信号
@@ -56,7 +59,7 @@ module EXE_stage (
     reg         div_started;
 
     // NOTE: ex7
-    assign es_ready_go    = !es_is_div | (div_started & div_done);
+    assign es_ready_go    = ex_int || !es_is_div | (div_started & div_done);
     assign es_allowin     = !es_valid || (es_ready_go && ms_allowin);
     assign es_to_ms_valid = es_valid && es_ready_go;
 
@@ -83,8 +86,9 @@ module EXE_stage (
     wire                        ex_ertn;  // [2]  // ex8
     wire                        ex_syscall;  // [1]  // ex8
     wire                        res_from_mem;  // [0]
-
+    wire                        ex_int;
     assign {
+        ex_int,
         cnt_sel, // NOTE: ex9, 与 ID 总线的最高两位对应.
         alu_op,
         mem_size,
@@ -134,7 +138,7 @@ module EXE_stage (
 
     // NOTE: ex7
     // NOTE: ex7
-    assign div_start = es_valid && es_is_div && !div_started && !flush;  // ex8
+    assign div_start = es_valid && es_is_div && !ex_int && !div_started && !flush;  // ex8
 
     // NOTE: ex8 需要清空除法状态, 但是不需要清空除法器, 除法器正在运行的除法正常运行, 就算输出结果也会被 div_startd 拦住
     always @(posedge clk) begin
@@ -184,7 +188,7 @@ module EXE_stage (
 
     // NOTE: ex9, 采样时使用即将进入 EXE 的新指令选择字段.
     wire [1:0] ds_cnt_sel;
-    assign ds_cnt_sel = ds_to_es_bus[`DS_TO_ES_BUS_WD-1:`DS_TO_ES_BUS_WD-2];
+    assign ds_cnt_sel = ds_to_es_bus[212:211];
 
     
 
@@ -216,6 +220,7 @@ module EXE_stage (
 
     // EXE -> MEM
     assign es_to_ms_bus = {
+        ex_int,
         es_pc,  // [156:125]
         mem_we,  // [124]
         gr_we,  // [123]
@@ -283,6 +288,10 @@ module EXE_stage (
     assign es_fwd_data = (cnt_sel != 2'b00) ? es_cnt_value : es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;  
     assign es_res_from_mem = res_from_mem;
     assign es_res_from_csr = res_from_csr;  // ex8
+
+    //NOTE: ex9,
+    assign es_csr_pending = es_valid && (csr_we || ex_ertn);
+
 
 endmodule
 

@@ -26,6 +26,7 @@ help:
 	  'make check           Run Verilator lint and Yosys synthesis checks' \
 	  'make test-ex9-topic1 Run isolated Stable Counter / TID tests with Icarus' \
 	  'make test-ex9-topic2 Run isolated timer CSR and full-CPU tests with Icarus' \
+	  'make test-ex9-topic3 Run isolated software/timer interrupt tests with Icarus' \
 	  'make fmt             Format myCPU RTL in place with Verible' \
 	  'make fmt-check       Report RTL files that are not formatted' \
 	  'make clean           Remove generated simulation files and traces'
@@ -115,6 +116,20 @@ $(EX9_TOPIC2_CSR_SIM): $(CPU_DIR)/CSR.v $(EX9_TOPIC2_REF) $(EX9_TOPIC2_DIR)/ex9_
 $(EX9_TOPIC2_CPU_SIM): $(RTL_FILES) $(CPU_DIR)/mycpu_head.v $(EX9_TOPIC2_REF) $(EX9_TOPIC2_DIR)/ex9_topic2_cpu_tb.sv Makefile
 	mkdir -p "$(EX9_TOPIC2_BUILD)"
 	iverilog -g2012 -Wall -s ex9_topic2_cpu_tb -I"$(CPU_DIR)" -o "$@" $(RTL_FILES) "$(EX9_TOPIC2_REF)" "$(EX9_TOPIC2_DIR)/ex9_topic2_cpu_tb.sv"
+
+# NOTE: ex9, Topic 3 独立整核中断测试, 复用独立的定时器参考模型.
+EX9_TOPIC3_DIR := tests/ex9_topic3
+EX9_TOPIC3_BUILD := build/ex9_topic3
+EX9_TOPIC3_TB := $(EX9_TOPIC3_DIR)/ex9_topic3_tb.sv
+EX9_TOPIC3_SIM := $(EX9_TOPIC3_BUILD)/ex9_topic3_sim
+
+.PHONY: test-ex9-topic3
+test-ex9-topic3: $(EX9_TOPIC3_SIM)
+	cd "$(EX9_TOPIC3_BUILD)" && vvp ./ex9_topic3_sim $(VVP_ARGS)
+
+$(EX9_TOPIC3_SIM): $(RTL_FILES) $(CPU_DIR)/mycpu_head.v $(EX9_TOPIC2_REF) $(EX9_TOPIC3_TB) Makefile
+	mkdir -p "$(EX9_TOPIC3_BUILD)"
+	iverilog -g2012 -Wall -s ex9_topic3_tb -I"$(CPU_DIR)" -o "$@" $(RTL_FILES) "$(EX9_TOPIC2_REF)" "$(EX9_TOPIC3_TB)"
 
 clean:
 	@rm -rf "$(GETTRACE_DIR)/gettrace.sim"
