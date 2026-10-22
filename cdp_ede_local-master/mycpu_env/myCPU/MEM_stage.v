@@ -158,7 +158,7 @@ module MEM_stage (
     assign ms_res_from_csr = res_from_csr;  // ex8
 
     // NOTE: ex9,
-    assign ms_csr_pending  = ms_valid && (csr_we || ex_ertn);
+    assign ms_csr_pending  = ms_valid && csr_we;
 
 endmodule
 

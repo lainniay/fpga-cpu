@@ -114,7 +114,7 @@ module WB_stage (
     assign ws_to_rf_bus = {ws_rf_we, ws_dest, ws_wb_data};
 
     //NOTE: ex9
-    assign ws_csr_pending = csr_we || ertn_flush;
+    assign ws_csr_pending = csr_we;
 
     always @(posedge clk) begin
         if (reset) begin

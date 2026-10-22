@@ -182,13 +182,9 @@ module EXE_stage (
 
     assign data_sram_en = es_valid && (res_from_mem | mem_we) && !ex_redirect;
 
-    // NOTE: ex9, 自由运行计数器由 counter 子模块提供, EXE 只保留指令的快照.
+    // NOTE: ex9
     wire [63:0] cnt_value;
-    reg  [31:0] es_cnt_value;
-
-    // NOTE: ex9, 采样时使用即将进入 EXE 的新指令选择字段.
-    wire [ 1:0] ds_cnt_sel;
-    assign ds_cnt_sel = ds_to_es_bus[212:211];
+    reg  [63:0] es_cnt_value;
 
     // NOTE: ex6 按访存宽度和地址低两位生成字节写使能
     wire [ 3:0] mem_we_byte;
@@ -236,24 +232,22 @@ module EXE_stage (
         mem_sign  // [0]
     };
 
-    // NOTE: ex9, 独立计数, 不受 valid, stall 或 flush 控制.
+    // NOTE: ex9 独立计数器
     counter u_counter (
         .clk      (clk),
         .reset    (reset),
         .cnt_value(cnt_value)
     );
 
-    // NOTE: ex9 指令进入 EXE 时取得一次固定快照
+    // NOTE: ex9 也就是采样时钟指令只在进入 EXE 那一拍采样
+    // 可以一定程度上保持计时的稳定性, 避免采样指令在 EXE 阻塞带来的影响
+    // 实际上 IPS 不会规定是什么时候决定
     always @(posedge clk) begin
         if (reset) begin
-            es_cnt_value <= 32'b0;
+            es_cnt_value <= 64'b0;
         end
         else if (!flush && ds_to_es_valid && es_allowin) begin
-            case (ds_cnt_sel)
-                2'b01:   es_cnt_value <= cnt_value[31:0];
-                2'b10:   es_cnt_value <= cnt_value[63:32];
-                default: es_cnt_value <= 32'b0;
-            endcase
+            es_cnt_value <= cnt_value;
         end
     end
 
@@ -282,13 +276,14 @@ module EXE_stage (
     // NOTE: Ex3 / ex7
     // NOTE: ex7 前递路径不连接乘法结果
     // NOTE: ex9, 计数快照同时供 ID 前递和后续 MEM 结果通路使用.
-    assign es_fwd_data = (cnt_sel != 2'b00) ? es_cnt_value : es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;
+    assign es_fwd_data = (cnt_sel == 2'b01) ? es_cnt_value[31:0] :
+                         (cnt_sel == 2'b10) ? es_cnt_value[63:32] :
+                         es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;
     assign es_res_from_mem = res_from_mem;
     assign es_res_from_csr = res_from_csr;  // ex8
 
     //NOTE: ex9,
-    assign es_csr_pending = es_valid && (csr_we || ex_ertn);
-
+    assign es_csr_pending = es_valid && csr_we;
 
 endmodule
 
