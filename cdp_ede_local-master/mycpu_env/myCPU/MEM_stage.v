@@ -64,8 +64,14 @@ module MEM_stage (
     wire                        res_from_mem;
     wire [                 1:0] mem_size;
     wire                        mem_sign;
+    // NOTE: ex9 同步异常传递和提前阻止年轻指令访存.
+    wire ex_ale, ex_adef, ex_break, ex_ine;  // NOTE: ex9
+    wire ms_ex = ex_adef | ex_syscall | ex_break | ex_ine | ex_ale;  // NOTE: ex9
 
     assign {
+        ex_ale,  // NOTE: ex9
+        ex_adef,  // NOTE: ex9
+        ex_break, ex_ine,  // NOTE: ex9
         ms_pc,
         mem_we,
         gr_we,
@@ -107,6 +113,9 @@ module MEM_stage (
 
     // NOTE: ex8 csr 写数据取原 rd 值, ms_final_result 对 csr 指令是无效的
     assign ms_to_ws_bus = {
+        ex_ale, ms_alu_result,  // NOTE: ex9 load 的错误地址不能被读数据替换.
+        ex_adef,  // NOTE: ex9
+        ex_break, ex_ine,  // NOTE: ex9
         ms_pc,  // [151:120]
         gr_we,  // [119]
         dest,  // [118:114]
@@ -138,11 +147,11 @@ module MEM_stage (
 
     // NOTE: ex2
     assign ms_valid        = ms_valid_r;
-    assign ms_gr_we        = gr_we;
+    assign ms_gr_we        = gr_we && !ms_ex;  // NOTE: ex9
     assign ms_dest         = dest;
 
     // NOTE: ex8 提前一拍通知 EXE 不要访存, ms_valid 防止 bubble 误报
-    assign ms_redirect     = ms_valid && (ex_syscall | ex_ertn);
+    assign ms_redirect     = ms_valid && (ms_ex | ex_ertn);  // NOTE: ex9
 
     // NOTE: ex3
     // NOTE: ex6 timing: 只前递已寄存的 ALU 结果; load 数据要等到 WB 才能前递,

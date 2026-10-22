@@ -56,7 +56,7 @@ module EXE_stage (
     reg         div_started;
 
     // NOTE: ex7
-    assign es_ready_go    = !es_is_div | (div_started & div_done);
+    assign es_ready_go    = es_ex | !es_is_div | (div_started & div_done);  //ex9异常不等待除法
     assign es_allowin     = !es_valid || (es_ready_go && ms_allowin);
     assign es_to_ms_valid = es_valid && es_ready_go;
 
@@ -83,8 +83,12 @@ module EXE_stage (
     wire                        ex_ertn;  // [2]  // ex8
     wire                        ex_syscall;  // [1]  // ex8
     wire                        res_from_mem;  // [0]
+    //ex9 ID异常随指令传递
+    wire ex_adef, ex_break, ex_ine;  //ex9
 
     assign {
+        ex_adef,  //ex9
+        ex_break, ex_ine,  //ex9
         alu_op,
         mem_size,
         mem_sign,
@@ -133,7 +137,7 @@ module EXE_stage (
 
     // NOTE: ex7
     // NOTE: ex7
-    assign div_start = es_valid && es_is_div && !div_started && !flush;  // ex8
+    assign div_start = es_valid && es_is_div && !div_started && !flush && !ms_redirect && !es_ex;  //ex9
 
     // NOTE: ex8 需要清空除法状态, 但是不需要清空除法器, 除法器正在运行的除法正常运行, 就算输出结果也会被 div_startd 拦住
     always @(posedge clk) begin
@@ -175,7 +179,13 @@ module EXE_stage (
     //       ms_redirect 盖住 "异常指令在 MEM" 那一拍, flush 盖住 "异常指令在 WB" 那一拍
     wire ex_redirect = ms_redirect | flush;
 
-    assign data_sram_en = es_valid && (res_from_mem | mem_we) && !ex_redirect;
+    // NOTE: ex9 本级异常也不能发起访存
+    // NOTE: ex9 地址形成的同拍检查对齐, 字节访问不产生ALE
+    wire ex_ale = (res_from_mem | mem_we) &&
+                  ((mem_size == 2'b00 && |es_alu_result[1:0]) ||
+                   (mem_size == 2'b10 && es_alu_result[0]));
+    wire es_ex = ex_adef | ex_syscall | ex_break | ex_ine | ex_ale;  //ex9
+    assign data_sram_en = es_valid && (res_from_mem | mem_we) && !ex_redirect && !es_ex;
 
     // NOTE: ex6 按访存宽度和地址低两位生成字节写使能
     wire [ 3:0] mem_we_byte;
@@ -199,12 +209,15 @@ module EXE_stage (
                        rkd_value;
 
     // ex8: 在 redirect 
-    assign data_sram_we = (es_valid && mem_we && !ex_redirect) ? mem_we_mask : 4'h0;
+    assign data_sram_we = (data_sram_en && mem_we) ? mem_we_mask : 4'h0;  // ex9
     assign data_sram_addr = es_alu_result;
     assign data_sram_wdata = mem_wdata;
 
     // EXE -> MEM
     assign es_to_ms_bus = {
+        ex_ale,  //ex9
+        ex_adef,  //ex9
+        ex_break, ex_ine,  //ex9
         es_pc,  // [156:125]
         mem_we,  // [124]
         gr_we,  // [123]
@@ -241,7 +254,7 @@ module EXE_stage (
     // NOTE: Ex2
     assign es_valid = es_valid_r;
     assign es_dest = dest;
-    assign es_gr_we = gr_we;
+    assign es_gr_we = gr_we && !es_ex;  //ex9的异常结果不前递
 
     // NOTE: Ex3 / ex7
     // NOTE: ex7 前递路径不连接乘法结果

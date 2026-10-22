@@ -74,6 +74,7 @@ module mycpu_top (
     wire [                31:0] wb_pc;
     wire [                 5:0] wb_ecode;
     wire [                 8:0] wb_esubcode;
+    wire [                31:0] wb_vaddr;  // NOTE: ex9 WB -> CSR 错误地址.
     wire [                31:0] ex_entry;
     wire [                31:0] ertn_entry;
 
@@ -196,6 +197,7 @@ module mycpu_top (
         .wb_pc          (wb_pc),
         .wb_ecode       (wb_ecode),
         .wb_esubcode    (wb_esubcode),
+        .wb_vaddr       (wb_vaddr),  // NOTE: ex9
         .flush          (flush),           // ex8
         .ws_pc          (ws_pc),
         .ws_rf_we       (ws_rf_we),
@@ -217,6 +219,7 @@ module mycpu_top (
         .wb_pc      (wb_pc),
         .wb_ecode   (wb_ecode),
         .wb_esubcode(wb_esubcode),
+        .wb_vaddr   (wb_vaddr),  // NOTE: ex9
         .ertn_flush (ertn_flush),
         .ex_entry   (ex_entry),
         .ertn_entry (ertn_entry)
