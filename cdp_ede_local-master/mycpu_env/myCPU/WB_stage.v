@@ -32,6 +32,9 @@ module WB_stage (
     // NOTE: ex8
     output wire flush,
 
+    // NOTE: ex9,
+    output wire ws_csr_pending,
+
     // NOTE: 为了 DEBUG, trace 等输出的数据
     output wire [31:0] ws_pc,
     output wire        ws_rf_we,
@@ -57,8 +60,10 @@ module WB_stage (
     wire [                31:0] ms_csr_wvalue;
     wire                        ms_ex_ertn;  // ex8
     wire                        ms_ex_syscall;  // ex8
+    wire                        ex_int;
 
     assign {
+        ex_int,
         ms_pc,
         gr_we,
         dest,
@@ -73,7 +78,7 @@ module WB_stage (
     } = ms_to_ws_bus_r;
 
     // NOTE: ex8, 控制 CSR 的 syscall 和 ertn 指令
-    assign wb_ex = ws_valid && ms_ex_syscall;
+    assign wb_ex = ws_valid && (ms_ex_syscall | ex_int);
     assign ertn_flush = ws_valid && ms_ex_ertn && !wb_ex;
 
     // NOTE: ex8 
@@ -81,8 +86,8 @@ module WB_stage (
 
     assign wb_pc = ms_pc;
 
-    // NOTE: ex8 目前只有 syscall 一种异常来源, 所以异常码写死为 SYS
-    assign wb_ecode = 6'h0b;
+    // NOTE: ex9 syscall 和 interrupt 是不同的异常来源
+    assign wb_ecode = ex_int ? 6'h00 : 6'h0b;
     assign wb_esubcode = 9'b0;
 
     // NOTE: ex8
@@ -107,6 +112,9 @@ module WB_stage (
     assign ws_rf_we = ws_valid && gr_we && !wb_ex;
 
     assign ws_to_rf_bus = {ws_rf_we, ws_dest, ws_wb_data};
+
+    //NOTE: ex9
+    assign ws_csr_pending = csr_we || ertn_flush;
 
     always @(posedge clk) begin
         if (reset) begin

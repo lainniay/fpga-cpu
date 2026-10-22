@@ -37,7 +37,10 @@ module MEM_stage (
     output wire ms_res_from_csr,
 
     // NOTE: ex8 由于此时, EXE 阶段的 store 会发生访存, 因此需要 syscall/ertn 在 mem 阶段就阻止
-    output wire ms_redirect
+    output wire ms_redirect,
+
+    // NOTE: ex9
+    output wire ms_csr_pending
 );
 
     // 基本握手协议
@@ -64,8 +67,10 @@ module MEM_stage (
     wire                        res_from_mem;
     wire [                 1:0] mem_size;
     wire                        mem_sign;
+    wire                        ex_int;
 
     assign {
+        ex_int,
         ms_pc,
         mem_we,
         gr_we,
@@ -107,6 +112,7 @@ module MEM_stage (
 
     // NOTE: ex8 csr 写数据取原 rd 值, ms_final_result 对 csr 指令是无效的
     assign ms_to_ws_bus = {
+        ex_int,  // [121]
         ms_pc,  // [151:120]
         gr_we,  // [119]
         dest,  // [118:114]
@@ -142,7 +148,7 @@ module MEM_stage (
     assign ms_dest         = dest;
 
     // NOTE: ex8 提前一拍通知 EXE 不要访存, ms_valid 防止 bubble 误报
-    assign ms_redirect     = ms_valid && (ex_syscall | ex_ertn);
+    assign ms_redirect     = ms_valid && (ex_syscall | ex_ertn | ex_int);
 
     // NOTE: ex3
     // NOTE: ex6 timing: 只前递已寄存的 ALU 结果; load 数据要等到 WB 才能前递,
@@ -150,6 +156,9 @@ module MEM_stage (
     assign ms_fwd_data     = ms_alu_result;
     assign ms_res_from_mem = res_from_mem;
     assign ms_res_from_csr = res_from_csr;  // ex8
+
+    // NOTE: ex9,
+    assign ms_csr_pending  = ms_valid && (csr_we || ex_ertn);
 
 endmodule
 

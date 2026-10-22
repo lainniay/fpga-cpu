@@ -40,7 +40,10 @@ module EXE_stage (
     output wire        es_res_from_csr,  // ex8
 
     // NOTE: ex7
-    output wire es_ready_go
+    output wire es_ready_go,
+
+    // NOTE: ex9,
+    output wire es_csr_pending
 );
 
     // NOTE: EXE 阶段握手信号
@@ -55,36 +58,38 @@ module EXE_stage (
     wire [31:0] div_remainder;
     reg         div_started;
 
+    // NOTE: ex9
+    wire        ex_int;
+
     // NOTE: ex7
-    assign es_ready_go    = !es_is_div | (div_started & div_done);
+    assign es_ready_go    = ex_int || !es_is_div | (div_started & div_done);
     assign es_allowin     = !es_valid || (es_ready_go && ms_allowin);
     assign es_to_ms_valid = es_valid && es_ready_go;
 
     // 存储 ds_to_es_bus 中的瞬间信号
-    reg  [`DS_TO_ES_BUS_WD-1:0] ds_to_es_bus_r;
-
-    wire [                18:0] alu_op;  // [210:192]  // ex7
-    wire [                 1:0] mem_size;  // [191:190]
-    wire                        mem_sign;  // [189]
-    wire                        src1_is_pc;  // [188]
-    wire                        src2_is_imm;  // [187]
-    wire                        src2_is_4;  // [186]  reserved, imm 中已包含该常数 4
-    wire                        gr_we;  // [185]
-    wire                        mem_we;  // [184]
-    wire [                 4:0] dest;  // [183:179]
-    wire [                31:0] imm;  // [178:147]
-    wire [                31:0] rj_value;  // [146:115]
-    wire [                31:0] rkd_value;  // [114:83]
-    wire [                31:0] es_pc;  // [82:51]
-    wire [                31:0] csr_wmask;  // [50:19]  // ex8
-    wire [                13:0] csr_addr;  // [18:5]  // ex8
-    wire                        csr_we;  // [4]  // ex8
-    wire                        res_from_csr;  // [3]  // ex8
-    wire                        ex_ertn;  // [2]  // ex8
-    wire                        ex_syscall;  // [1]  // ex8
-    wire                        res_from_mem;  // [0]
-
-    assign {
+    reg [`DS_TO_ES_BUS_WD-1:0] ds_to_es_bus_r;
+    wire [1:0] cnt_sel;  // NOTE: ex9, [212:211], 当前 EXE 指令的计数结果选择.
+    wire [18:0] alu_op;  // [210:192]  // ex7
+    wire [1:0] mem_size;  // [191:190]
+    wire mem_sign;  // [189]
+    wire src1_is_pc;  // [188]
+    wire src2_is_imm;  // [187]
+    wire src2_is_4;  // [186]  reserved, imm 中已包含该常数 4
+    wire gr_we;  // [185]
+    wire mem_we;  // [184]
+    wire [4:0] dest;  // [183:179]
+    wire [31:0] imm;  // [178:147]
+    wire [31:0] rj_value;  // [146:115]
+    wire [31:0] rkd_value;  // [114:83]
+    wire [31:0] es_pc;  // [82:51]
+    wire [31:0] csr_wmask;  // [50:19]  // ex8
+    wire [13:0] csr_addr;  // [18:5]  // ex8
+    wire csr_we;  // [4]  // ex8
+    wire res_from_csr;  // [3]  // ex8
+    wire ex_ertn;  // [2]  // ex8
+    wire ex_syscall;  // [1]  // ex8
+    wire res_from_mem;  // [0]
+    assign {ex_int, cnt_sel,  // NOTE: ex9, 与 ID 总线的最高两位对应.
         alu_op,
         mem_size,
         mem_sign,
@@ -133,7 +138,7 @@ module EXE_stage (
 
     // NOTE: ex7
     // NOTE: ex7
-    assign div_start = es_valid && es_is_div && !div_started && !flush;  // ex8
+    assign div_start = es_valid && es_is_div && !ex_int && !div_started && !flush;  // ex8
 
     // NOTE: ex8 需要清空除法状态, 但是不需要清空除法器, 除法器正在运行的除法正常运行, 就算输出结果也会被 div_startd 拦住
     always @(posedge clk) begin
@@ -177,6 +182,14 @@ module EXE_stage (
 
     assign data_sram_en = es_valid && (res_from_mem | mem_we) && !ex_redirect;
 
+    // NOTE: ex9, 自由运行计数器由 counter 子模块提供, EXE 只保留指令的快照.
+    wire [63:0] cnt_value;
+    reg  [31:0] es_cnt_value;
+
+    // NOTE: ex9, 采样时使用即将进入 EXE 的新指令选择字段.
+    wire [ 1:0] ds_cnt_sel;
+    assign ds_cnt_sel = ds_to_es_bus[212:211];
+
     // NOTE: ex6 按访存宽度和地址低两位生成字节写使能
     wire [ 3:0] mem_we_byte;
     wire [ 3:0] mem_we_half;
@@ -205,6 +218,7 @@ module EXE_stage (
 
     // EXE -> MEM
     assign es_to_ms_bus = {
+        ex_int,
         es_pc,  // [156:125]
         mem_we,  // [124]
         gr_we,  // [123]
@@ -221,6 +235,28 @@ module EXE_stage (
         mem_size,  // [2:1]
         mem_sign  // [0]
     };
+
+    // NOTE: ex9, 独立计数, 不受 valid, stall 或 flush 控制.
+    counter u_counter (
+        .clk      (clk),
+        .reset    (reset),
+        .cnt_value(cnt_value)
+    );
+
+    // NOTE: ex9 指令进入 EXE 时取得一次固定快照
+    always @(posedge clk) begin
+        if (reset) begin
+            es_cnt_value <= 32'b0;
+        end
+        else if (!flush && ds_to_es_valid && es_allowin) begin
+            case (ds_cnt_sel)
+                2'b01:   es_cnt_value <= cnt_value[31:0];
+                2'b10:   es_cnt_value <= cnt_value[63:32];
+                default: es_cnt_value <= 32'b0;
+            endcase
+        end
+    end
+
 
     always @(posedge clk) begin
         if (reset) begin
@@ -245,9 +281,14 @@ module EXE_stage (
 
     // NOTE: Ex3 / ex7
     // NOTE: ex7 前递路径不连接乘法结果
-    assign es_fwd_data = es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;  // ex7
+    // NOTE: ex9, 计数快照同时供 ID 前递和后续 MEM 结果通路使用.
+    assign es_fwd_data = (cnt_sel != 2'b00) ? es_cnt_value : es_is_div ? (div_take_rem ? div_remainder : div_quotient) : es_alu_result;
     assign es_res_from_mem = res_from_mem;
     assign es_res_from_csr = res_from_csr;  // ex8
+
+    //NOTE: ex9,
+    assign es_csr_pending = es_valid && (csr_we || ex_ertn);
+
 
 endmodule
 

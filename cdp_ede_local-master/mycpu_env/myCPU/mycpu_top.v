@@ -82,6 +82,13 @@ module mycpu_top (
     wire                        ms_redirect;
     wire [                31:0] redirect_pc = wb_ex ? ex_entry : ertn_entry;
 
+    // NOTE: ex9
+    wire                        has_int;
+    wire                        es_csr_pending;
+    wire                        ms_csr_pending;
+    wire                        ws_csr_pending;
+
+
     IF_stage u_if_stage (
         .clk            (clk),
         .reset          (reset),
@@ -125,7 +132,12 @@ module mycpu_top (
         .es_res_from_csr(es_res_from_csr),  // ex8
         .ms_fwd_data    (ms_fwd_data),
         .ms_res_from_mem(ms_res_from_mem),
-        .ms_res_from_csr(ms_res_from_csr)   // ex8
+        .ms_res_from_csr(ms_res_from_csr),  // ex8
+
+        .es_csr_pending(es_csr_pending),
+        .ms_csr_pending(ms_csr_pending),
+        .ws_csr_pending(ws_csr_pending),
+        .has_int       (has_int)
     );
 
     EXE_stage u_exe_stage (
@@ -152,7 +164,8 @@ module mycpu_top (
         .es_res_from_mem(es_res_from_mem),
         .es_ready_go    (es_ready_go),      // ex7
         .es_is_mul      (es_is_mul),        // ex7
-        .es_res_from_csr(es_res_from_csr)   // ex8
+        .es_res_from_csr(es_res_from_csr),  // ex8
+        .es_csr_pending (es_csr_pending)    // ex9
     );
 
     MEM_stage u_mem_stage (
@@ -174,7 +187,8 @@ module mycpu_top (
         .ms_fwd_data    (ms_fwd_data),
         .ms_res_from_mem(ms_res_from_mem),
         .ms_res_from_csr(ms_res_from_csr),  // ex8
-        .ms_redirect    (ms_redirect)       // ex8
+        .ms_redirect    (ms_redirect),      // ex8
+        .ms_csr_pending (ms_csr_pending)    // ex9
     );
 
     WB_stage u_wb_stage (
@@ -196,11 +210,12 @@ module mycpu_top (
         .wb_pc          (wb_pc),
         .wb_ecode       (wb_ecode),
         .wb_esubcode    (wb_esubcode),
-        .flush          (flush),           // ex8
+        .flush          (flush),            // ex8
         .ws_pc          (ws_pc),
         .ws_rf_we       (ws_rf_we),
         .ws_dest        (ws_dest),
-        .ws_final_result(ws_final_result)
+        .ws_final_result(ws_final_result),
+        .ws_csr_pending (ws_csr_pending)    // ex9
     );
 
     // NOTE: ex8 
@@ -219,7 +234,8 @@ module mycpu_top (
         .wb_esubcode(wb_esubcode),
         .ertn_flush (ertn_flush),
         .ex_entry   (ex_entry),
-        .ertn_entry (ertn_entry)
+        .ertn_entry (ertn_entry),
+        .has_int    (has_int)       // ex9
     );
 
     assign debug_wb_pc       = ws_pc;

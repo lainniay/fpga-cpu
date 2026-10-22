@@ -47,7 +47,13 @@ module ID_stage (
 
     // NOTE: ex8 csr 结果要到 WB 才能拿到, 与 res_from_mem 同类
     input wire es_res_from_csr,
-    input wire ms_res_from_csr
+    input wire ms_res_from_csr,
+
+    // 决定当前指令带不带中断
+    input wire es_csr_pending,
+    input wire ms_csr_pending,
+    input wire ws_csr_pending,
+    input wire has_int
 );
 
     // NOTE: ex2
@@ -88,7 +94,7 @@ module ID_stage (
     wire late_use;
     // NOTE: ex7
     wire es_late;
-    assign ds_ready_go    = !late_use;
+    // assign ds_ready_go    = !late_use;
 
     assign ds_allowin     = !ds_valid || (ds_ready_go && es_allowin);
     assign ds_to_es_valid = ds_valid && ds_ready_go;
@@ -213,9 +219,6 @@ module ID_stage (
     assign rj       = ds_inst[9:5];
     assign rk       = ds_inst[14:10];
 
-    // NOTE: ex8
-    assign csr_addr = ds_inst[23:10];
-
     assign i12      = ds_inst[21:10];
     assign i20      = ds_inst[24:5];
     assign i16      = ds_inst[25:10];
@@ -304,6 +307,13 @@ module ID_stage (
     // NOTE: ex8
     wire inst_syscall;
     wire inst_ertn;
+    // NOTE: ex9
+    wire inst_rdcntvl_w;
+    wire inst_rdcntvh_w;
+    wire inst_rdcntid;
+    wire [1:0] cnt_sel;
+    wire csr_pending;
+    wire ex_int;
 
     assign inst_add_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h00];
     assign inst_sub_w = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h1] & op_19_15_d[5'h02];
@@ -368,6 +378,12 @@ module ID_stage (
     assign inst_syscall = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h16];
     // NOTE: ex8 ertn 的编码固定为 0x06483800
     assign inst_ertn = op_31_26_d[6'h01] & ds_inst[25] & ~ds_inst[24];
+
+    // NOTE: ex9
+    assign inst_rdcntvl_w = (ds_inst[31:10] == 22'h000018) && (rj == 5'd0);
+    assign inst_rdcntvh_w = (ds_inst[31:10] == 22'h000019) && (rj == 5'd0);
+    assign inst_rdcntid = (ds_inst[31:10] == 22'h000018) && (rd == 5'd0) && (rj != 5'd0);
+    assign cnt_sel = inst_rdcntvl_w ? 2'b01 : inst_rdcntvh_w ? 2'b10 : 2'b00;
 
     // ex4 / ex6
     assign alu_op[0] = inst_add_w | inst_addi_w | inst_ld_w | inst_st_w | inst_jirl | inst_bl | inst_pcaddu12i
@@ -465,28 +481,30 @@ module ID_stage (
                            inst_st_h    ;
 
     // ex6: 所有 load 的结果都来自数据 RAM
-    assign res_from_mem = inst_ld_w | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu;
+    assign res_from_mem = ex_int ? 1'b0 : inst_ld_w | inst_ld_b | inst_ld_h | inst_ld_bu | inst_ld_hu;
     // NOTE: ex6 访存宽度与符号扩展
     assign mem_size = (inst_ld_b | inst_ld_bu | inst_st_b) ? 2'b01 :
                       (inst_ld_h | inst_ld_hu | inst_st_h) ? 2'b10 : 2'b00;
     assign mem_sign = inst_ld_b | inst_ld_h;
     assign dst_is_r1 = inst_bl;
 
-    assign res_from_csr = inst_csrrd | inst_csrwr | inst_csrxchg;
-    assign csr_we = inst_csrwr | inst_csrxchg;
+    // NOTE: ex9 需要注意的是, ex_int 会防止 ID 原有的指令带来的状态改变
+    assign res_from_csr = ex_int ? 1'b0 : inst_csrrd | inst_csrwr | inst_csrxchg | inst_rdcntid;
+    assign csr_we = ex_int ? 1'b0 : inst_csrwr | inst_csrxchg;
     assign csr_wmask = inst_csrwr ? 32'hffffffff : rj_value;
 
     // NOTE: ex8
-    assign ex_syscall = inst_syscall;
-    assign ex_ertn = inst_ertn;
+    assign ex_syscall = ex_int ? 1'b0 : inst_syscall;
+    assign ex_ertn = ex_int ? 1'b0 : inst_ertn;
 
     // ex5 / ex6 / ex8
-    assign gr_we = ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b
+    assign gr_we = ex_int ? 1'b0 :
+                    ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b
                  & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu
                  & ~inst_syscall & ~inst_ertn;  // NOTE: ex8 两条都不写通用寄存器
-    assign mem_we = inst_st_w | inst_st_b | inst_st_h;
-    // 5'd1 是 r1 寄存器编号
-    assign dest = dst_is_r1 ? 5'd1 : rd;
+    assign mem_we = ex_int ? 1'b0 : inst_st_w | inst_st_b | inst_st_h;
+    // NOTE: ex9, rdcntid 写 rj, bl 写 r1, 其余写结果的指令写 rd.
+    assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
 
     // NOTE: ex2
     // ex4
@@ -511,6 +529,10 @@ module ID_stage (
     assign src2_is_rkd = src2_is_rk | inst_beq | inst_bne | inst_st_w | inst_st_b | inst_st_h
                          | inst_blt | inst_bge | inst_bltu | inst_bgeu
                          | inst_csrwr | inst_csrxchg;  // NOTE: ex8 读原 rd 作为 csr 写数据
+
+    // NOTE: ex9, rdcntid 固定读取 TID, 普通 CSR 指令沿用指令中的编号
+    localparam [13:0] CSR_TID = 14'h0040;
+    assign csr_addr = inst_rdcntid ? CSR_TID : ds_inst[23:10];
 
     // NOTE: 寄存器堆
     wire [ 4:0] rf_raddr1;
@@ -558,7 +580,7 @@ module ID_stage (
                         || inst_jirl
                         || inst_bl
                         || inst_b
-                       ) && ds_valid;
+                       ) && ds_valid && ds_ready_go && !ex_int && !flush;
     // ex5
     assign br_target = (inst_beq || inst_bne || inst_blt || inst_bge
                         || inst_bltu || inst_bgeu || inst_bl || inst_b)
@@ -569,6 +591,8 @@ module ID_stage (
 
     //NOTE : 将 ID 信息传入到 EXE 阶段
     assign ds_to_es_bus = {
+        ex_int,  // [213] // ex9
+        cnt_sel,  // [212:211] // ex9
         alu_op,  // [210:192]  // ex7
         mem_size,  // [191:190]
         mem_sign,  // [189]
@@ -591,18 +615,6 @@ module ID_stage (
         res_from_mem  // [0]
     };
 
-    // NOTE: ex2 相关判断
-    // es_valid 表明 exe 阶段是一条有效的指令, 不是 bubble
-    // es_gr_we 不出 exe 阶段具有 通用寄存器 写使能
-    // es_dest 写的不是 r0, 也就是 0寄存器
-    // src1_is_rj / src2_is_rkd 表示 ID 指令是不是真的要使用 regfile, 后面的用于判断写目标是不是 ID 需要读的寄存器
-    // assign es_conflict = es_valid && es_gr_we && (es_dest != 5'd0) &&
-    //                   ((src1_is_rj && es_dest == rf_raddr1) || (src2_is_rkd && es_dest == rf_raddr2));
-    // assign ms_conflict = ms_valid && ms_gr_we && (ms_dest != 5'd0) &&
-    //                   ((src1_is_rj && ms_dest == rf_raddr1) || (src2_is_rkd && ms_dest == rf_raddr2));
-    // rf_we 本来就是供给 wb 的写控制信号, rf_we = ws_valid && gr_we
-    // assign ws_conflict = rf_we && (rf_waddr != 5'd0) &&
-    //                   ((src1_is_rj && rf_waddr == rf_raddr1) || (src2_is_rkd && rf_waddr == rf_raddr2));
 
     // NOTE: ex3
     // ex3 的判断信号和上面的几乎一样, 但是需要注意的是, exe 阶段需要排除 es_res_from_mem, 也就是 load 类指令
@@ -637,6 +649,13 @@ module ID_stage (
     assign late_use2 = es_match2 ? es_late : (ms_match2 & (ms_res_from_mem | ms_res_from_csr));
 
     assign late_use = late_use1 | late_use2;
+
+    // NOTE:ex9 由于 has_int 是 CSR 组合逻辑, 并且使用的就是当前的 CSR 值
+    // NOTE: 因此如果 EXE, MEM, WB 阶段还有 CSR 状态变更没有提交, 就需要等待
+    assign csr_pending = es_csr_pending || ms_csr_pending || ws_csr_pending;
+    // NOTE: ex9 用于表达当前指令是 expection
+    assign ex_int = ds_valid && has_int && !csr_pending && !flush;
+    assign ds_ready_go = !csr_pending && (ex_int || !late_use);
 
 endmodule
 
