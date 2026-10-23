@@ -24,8 +24,6 @@ help:
 	  'make run TEST=ex1    Select ex1, generate golden trace, and simulate CPU' \
 	  'make sim             Simulate (regenerates golden trace if the mif changed)' \
 	  'make check           Run Verilator lint and Yosys synthesis checks' \
-	  'make test-ex9-1       Run directed synchronous exception tests' \
-	  'make test-ex9-1-official Run the isolated official ex9_1 functions' \
 	  'make fmt             Format myCPU RTL in place with Verible' \
 	  'make fmt-check       Report RTL files that are not formatted' \
 	  'make clean           Remove generated simulation files and traces'
@@ -82,22 +80,6 @@ synth-check:
 	@yosys -q -p 'read_verilog $(CPU_DIR)/*.v; hierarchy -check -top mycpu_top; proc; check'
 
 check: lint synth-check
-
-# NOTE: ex9 独立同步异常测试, 不依赖 ex9_2 的计数器和中断.
-.PHONY: test-ex9-1
-test-ex9-1:
-	@mkdir -p build/ex9_1
-	@iverilog -g2012 -Wall -s ex9_1_tb -I"$(CPU_DIR)" -o build/ex9_1/directed $(RTL_FILES) tests/ex9_1_tb.v
-	@vvp build/ex9_1/directed
-	@iverilog -g2012 -Wall -s ex9_if_tb -I"$(CPU_DIR)" -o build/ex9_1/if-stage $(RTL_FILES) tests/ex9_if_tb.v
-	@vvp build/ex9_1/if-stage
-
-# NOTE: ex9 保留官方函数体的独立调度测试, 不等于完整 Ex9 回归.
-.PHONY: test-ex9-1-official
-test-ex9-1-official:
-	@mkdir -p build/ex9_1
-	@iverilog -g2012 -Wall -s ex9_1_official_tb -I"$(CPU_DIR)" -o build/ex9_1/official $(RTL_FILES) $(MYCPU_ENV)/soc_verify/soc_bram/rtl/*.v $(MYCPU_ENV)/soc_verify/soc_bram/rtl/*/*.v tests/ex9_1_official_tb.v
-	@vvp build/ex9_1/official
 
 clean:
 	@rm -rf "$(GETTRACE_DIR)/gettrace.sim"

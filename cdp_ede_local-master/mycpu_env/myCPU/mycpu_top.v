@@ -211,7 +211,7 @@ module mycpu_top (
         .wb_pc          (wb_pc),
         .wb_ecode       (wb_ecode),
         .wb_esubcode    (wb_esubcode),
-        .wb_vaddr       (wb_vaddr),  // NOTE: ex9
+        .wb_vaddr       (wb_vaddr),         // NOTE: ex9
         .flush          (flush),            // ex8
         .ws_pc          (ws_pc),
         .ws_rf_we       (ws_rf_we),
@@ -234,7 +234,7 @@ module mycpu_top (
         .wb_pc      (wb_pc),
         .wb_ecode   (wb_ecode),
         .wb_esubcode(wb_esubcode),
-        .wb_vaddr   (wb_vaddr),  // NOTE: ex9
+        .wb_vaddr   (wb_vaddr),     // NOTE: ex9
         .ertn_flush (ertn_flush),
         .ex_entry   (ex_entry),
         .ertn_entry (ertn_entry),

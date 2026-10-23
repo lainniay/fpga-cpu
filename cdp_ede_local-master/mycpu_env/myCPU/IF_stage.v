@@ -44,7 +44,7 @@ module IF_stage (
     wire next_ex_adef = |next_pc[1:0];
     // NOTE: ex9禁止取指时SRAM保留旧数据, 不能再将其译成有副作用的指令
     wire [31:0] fs_inst = ex_adef ? 32'b0 : inst_sram_rdata;
-    assign fs_to_ds_bus = {ex_adef, fs_inst, fs_pc};
+    assign fs_to_ds_bus   = {ex_adef, fs_inst, fs_pc};
 
     assign to_fs_valid    = ~reset;
     // NOTE: 正常情况下 IF 的下一个 PC
@@ -70,16 +70,16 @@ module IF_stage (
 
     always @(posedge clk) begin
         if (reset) begin
-            fs_pc <= 32'h1bfffffc;
+            fs_pc   <= 32'h1bfffffc;
             ex_adef <= 1'b0;  //ex9
         end
         // NOTE: ex8 flush 更新优先于 allowin
         else if (flush) begin
-            fs_pc <= redirect_pc;
+            fs_pc   <= redirect_pc;
             ex_adef <= next_ex_adef;  //ex9
         end
         else if (to_fs_valid && fs_allowin) begin
-            fs_pc <= next_pc;
+            fs_pc   <= next_pc;
             ex_adef <= next_ex_adef;  //ex9
         end
     end
