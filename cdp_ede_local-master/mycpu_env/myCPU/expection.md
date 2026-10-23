@@ -46,6 +46,33 @@ wire ex_redirect = ms_redirect | flush;
 
 CPU 在 ID 阶段检查 CSR 从而, 发出 `has_int` 表达有中断, 从而让中断自然的附着在流水线的 ID 阶段所处理的指令上.
 
+## 同步异常
+
+当前的指令执行的时候可能发生异常, 目前覆盖的同步异常如下:
+
+- ADEF
+  - 取值地址错误, 没有对齐
+  - ecode=0x8, subcode=0x0
+  - IF 检出
+- ALE
+  - 访存地址没有对齐
+  - ecode=0x9, subcode=0x0
+  - EXE 检出
+- SYS
+  - syscall 系统调用
+  - ecode=0xb, subcode=0x0
+  - ID 检出
+- BRK
+  - break 断点
+  - ecode=0xc, subcode=0x0
+  - ID 检出
+- INE
+  - 指令不存在
+  - ecode=0xd, subcode=0x0
+  - ID 检出
+
+需要注意的是, 不同的同步异常的检出位置不一样.
+
 ## 已有的 CSR 
 
 CSR 的编号来自指令里的 14 位立即数 `csr_addr`, 一共 16384 个位置, 而实际实现的只有下面这几个. 访问未定义或硬件未实现的 CSR 时, 读动作返回全 0, 写动作不修改任何软件可见的状态, 这是手册明确规定的行为.

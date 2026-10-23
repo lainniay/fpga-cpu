@@ -106,7 +106,8 @@ module ID_stage (
     wire [                31:0] ds_inst;
     // NOTE: ID 阶段的 PC
     wire [                31:0] ds_pc;
-    assign {ds_inst, ds_pc} = fs_to_ds_bus_r;
+    wire                        ex_adef;  // NOTE: ex9
+    assign {ex_adef, ds_inst, ds_pc} = fs_to_ds_bus_r;
 
     always @(posedge clk) begin
         if (reset) begin
@@ -147,6 +148,10 @@ module ID_stage (
     // NOTE: ex8 两条异常指令的标志, 沿流水线带到 WB 才上报
     wire        ex_syscall;
     wire        ex_ertn;
+    // NOTE: ex9 同步异常在 ID 检测, 传到 WB 后提交
+    wire        ex_break;
+    wire        ex_ine;
+    wire        inst_valid;
     // 目标寄存器是 r1
     wire        dst_is_r1;
     // 通用寄存器写使能
@@ -376,8 +381,24 @@ module ID_stage (
 
     // NOTE: ex8 syscall 的 inst[31:15] 是 0x002b<<15, 低 15 位是软件自定义的 code
     assign inst_syscall = op_31_26_d[6'h00] & op_25_22_d[4'h0] & op_21_20_d[2'h2] & op_19_15_d[5'h16];
-    // NOTE: ex8 ertn 的编码固定为 0x06483800
-    assign inst_ertn = op_31_26_d[6'h01] & ds_inst[25] & ~ds_inst[24];
+    // NOTE: ex9 ertn必须匹配完整编码, 同类前缀的保留编码仍应报INE
+    assign inst_ertn = ds_inst == 32'h06483800;
+    // NOTE: ex9 break的低15位是软件code,不参与译码
+    assign ex_break = ds_inst[31:15] == 17'h00054;
+
+    assign inst_valid = inst_add_w | inst_sub_w | inst_slt | inst_sltu
+                      | inst_nor | inst_and | inst_or | inst_xor
+                      | inst_slli_w | inst_srli_w | inst_srai_w | inst_addi_w
+                      | inst_ld_w | inst_st_w | inst_jirl | inst_b | inst_bl
+                      | inst_beq | inst_bne | inst_lu12i_w | inst_slti | inst_sltui
+                      | inst_andi | inst_ori | inst_xori | inst_sll_w | inst_srl_w
+                      | inst_sra_w | inst_pcaddu12i | inst_blt | inst_bge
+                      | inst_bltu | inst_bgeu | inst_ld_b | inst_ld_h | inst_ld_bu
+                      | inst_ld_hu | inst_st_b | inst_st_h | inst_mul_w | inst_mulh_w
+                      | inst_mulh_wu | inst_div_w | inst_mod_w | inst_div_wu | inst_mod_wu
+                      | inst_csrrd | inst_csrwr | inst_csrxchg | inst_syscall | inst_ertn | ex_break
+                      | inst_rdcntvl_w | inst_rdcntvh_w | inst_rdcntid;
+    assign ex_ine = !inst_valid && !ex_adef;  //ex9 取指异常不再解释指令编码
 
     // NOTE: ex9
     assign inst_rdcntvl_w = (ds_inst[31:10] == 22'h000018) && (rj == 5'd0);
@@ -488,9 +509,9 @@ module ID_stage (
     assign mem_sign = inst_ld_b | inst_ld_h;
     assign dst_is_r1 = inst_bl;
 
-    // NOTE: ex9 需要注意的是, ex_int 会防止 ID 原有的指令带来的状态改变
+    // NOTE: ex9 保留中断取消和取指异常的写屏蔽.
     assign res_from_csr = ex_int ? 1'b0 : inst_csrrd | inst_csrwr | inst_csrxchg | inst_rdcntid;
-    assign csr_we = ex_int ? 1'b0 : inst_csrwr | inst_csrxchg;
+    assign csr_we = (inst_csrwr | inst_csrxchg) && !ex_int && !ex_adef;
     assign csr_wmask = inst_csrwr ? 32'hffffffff : rj_value;
 
     // NOTE: ex8
@@ -501,8 +522,8 @@ module ID_stage (
     assign gr_we = ex_int ? 1'b0 :
                     ~inst_st_w & ~inst_st_b & ~inst_st_h & ~inst_beq & ~inst_bne & ~inst_b
                  & ~inst_blt & ~inst_bge & ~inst_bltu & ~inst_bgeu
-                 & ~inst_syscall & ~inst_ertn;  // NOTE: ex8 两条都不写通用寄存器
-    assign mem_we = ex_int ? 1'b0 : inst_st_w | inst_st_b | inst_st_h;
+                 & ~inst_syscall & ~inst_ertn & ~ex_break & ~ex_ine & ~ex_adef;
+    assign mem_we = (inst_st_w | inst_st_b | inst_st_h) && !ex_int && !ex_adef;
     // NOTE: ex9, rdcntid 写 rj, bl 写 r1, 其余写结果的指令写 rd.
     assign dest = inst_rdcntid ? rj : dst_is_r1 ? 5'd1 : rd;
 
@@ -580,7 +601,7 @@ module ID_stage (
                         || inst_jirl
                         || inst_bl
                         || inst_b
-                       ) && ds_valid && ds_ready_go && !ex_int && !flush;
+                       ) && ds_valid && ds_ready_go && !ex_int && !flush && !ex_adef;
     // ex5
     assign br_target = (inst_beq || inst_bne || inst_blt || inst_bge
                         || inst_bltu || inst_bgeu || inst_bl || inst_b)
@@ -591,28 +612,31 @@ module ID_stage (
 
     //NOTE : 将 ID 信息传入到 EXE 阶段
     assign ds_to_es_bus = {
-        ex_int,  // [213] // ex9
-        cnt_sel,  // [212:211] // ex9
-        alu_op,  // [210:192]  // ex7
-        mem_size,  // [191:190]
-        mem_sign,  // [189]
-        src1_is_pc,  // [188]
-        src2_is_imm,  // [187]
-        src2_is_4,  // [186]
-        gr_we,  // [185]
-        mem_we,  // [184]
-        dest,  // [183:179]
-        imm,  // [178:147]
-        rj_value,  // [146:115]
-        rkd_value,  // [114:83]
-        ds_pc,  // [82:51]
-        csr_wmask,  // [50:19]  // ex8
-        csr_addr,  // [18:5]  // ex8
-        csr_we,  // [4]  // ex8
-        res_from_csr,  // [3]  // ex8
-        ex_ertn,  // [2]  // ex8
-        ex_syscall,  // [1]  // ex8
-        res_from_mem  // [0]
+        ex_adef,
+        ex_break,
+        ex_ine,
+        ex_int,
+        cnt_sel,
+        alu_op,
+        mem_size,
+        mem_sign,
+        src1_is_pc,
+        src2_is_imm,
+        src2_is_4,
+        gr_we,
+        mem_we,
+        dest,
+        imm,
+        rj_value,
+        rkd_value,
+        ds_pc,
+        csr_wmask,
+        csr_addr,
+        csr_we,
+        res_from_csr,
+        ex_ertn,
+        ex_syscall,
+        res_from_mem
     };
 
 

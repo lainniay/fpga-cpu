@@ -26,8 +26,11 @@ module CSR (
     input wire [ 5:0] wb_ecode,
     // NOTE: 异常子码
     input wire [ 8:0] wb_esubcode,
+    // NOTE: 原始错误地址
+    input wire [31:0] wb_vaddr,
+
     // NOTE: wb 告知 csr, 将从 expection 中返回
-    input wire        ertn_flush,   // ertn 是 expection return 的缩写
+    input wire ertn_flush,
 
     output wire [31:0] ex_entry,
     output wire [31:0] ertn_entry,
@@ -44,6 +47,7 @@ module CSR (
     localparam [13:0] CSR_ESTAT  = 14'h0005;
     // 异常返回地址
     localparam [13:0] CSR_ERA    = 14'h0006;
+    localparam [13:0] CSR_BADV   = 14'h0007;
     // 异常入口
     localparam [13:0] CSR_EENTRY = 14'h000c;
     // kernel 专用的寄存器组
@@ -51,17 +55,14 @@ module CSR (
     localparam [13:0] CSR_SAVE1  = 14'h0031;
     localparam [13:0] CSR_SAVE2  = 14'h0032;
     localparam [13:0] CSR_SAVE3  = 14'h0033;
-    // NOTE: ex9, TID 的 CSR 编号, 与保存的编号内容区分.
+
+    // 计时相关 CSR
     localparam [13:0] CSR_TID = 14'h0040;
-    // NOTE: ex9, 定时器配置寄存器(Timer Configuration, TCFG)的 CSR 编号.
     localparam [13:0] CSR_TCFG = 14'h0041;
-    // NOTE: ex9, 定时器当前值寄存器(Timer Value, TVAL)的 CSR 编号, 软件只读.
     localparam [13:0] CSR_TVAL = 14'h0042;
-    // NOTE: ex9, 定时中断清除寄存器(Timer Interrupt Clear, TICLR)的 CSR 编号.
-    // NOTE: ex9, 该入口不保存数据, 软件向 bit0 有效写1表示清除, 读取恒为0.
     localparam [13:0] CSR_TICLR = 14'h0044;
 
-    // NOTE : ex9
+    // 错误配置 CSR
     localparam [13:0] CSR_ECFG = 14'h0004;
 
     // crmd.plv : 当前特权等级, 0 ~ 3
@@ -72,12 +73,14 @@ module CSR (
     reg [1:0] prmd_pplv;
     // prmd.pie : 异常前的 IE
     reg prmd_pie;
-    // 
-    reg [1:0] estat_sw_int;  // sw_int : software_interrupt
+    // sw_int : software_interrupt
+    reg [1:0] estat_sw_int;
     reg [5:0] estat_ecode;
     reg [8:0] estat_esubcode;
     // Exception Return Address
     reg [31:0] era;
+    // badv : Bad Virtual Address
+    reg [31:0] badv;
     // Expection Entry Virtual Address
     reg [25:0] eentry_va;
 
@@ -131,6 +134,7 @@ module CSR (
                 CSR_PRMD: csr_rvalue = prmd_rvalue;
                 CSR_ESTAT: csr_rvalue = estat_rvalue;
                 CSR_ERA: csr_rvalue = era;
+                CSR_BADV: csr_rvalue = badv;
                 CSR_EENTRY: csr_rvalue = eentry_rvalue;
                 CSR_SAVE0: csr_rvalue = save0;
                 CSR_SAVE1: csr_rvalue = save1;
@@ -156,6 +160,7 @@ module CSR (
             estat_ecode    <= 6'b0;
             estat_esubcode <= 9'b0;
             era            <= 32'b0;
+            badv           <= 32'b0;
             eentry_va      <= 26'b0;
             save0          <= 32'b0;
             save1          <= 32'b0;
@@ -175,6 +180,8 @@ module CSR (
             era            <= wb_pc;
             estat_ecode    <= wb_ecode;
             estat_esubcode <= wb_esubcode;
+            // NOTE: ex9 只有地址异常更新 BADV.
+            if ((wb_ecode == 6'h08 && wb_esubcode == 9'b0) || wb_ecode == 6'h09) badv <= wb_vaddr;
         end
         else if (ertn_flush) begin  // 返回用户态
             crmd_plv <= prmd_pplv;
@@ -193,6 +200,7 @@ module CSR (
                 CSR_TID: tid <= (tid & ~csr_wmask) | (csr_wvalue & csr_wmask);
                 CSR_ESTAT: estat_sw_int <= estat_next[1:0];
                 CSR_ERA: era <= (era & ~csr_wmask) | (csr_wvalue & csr_wmask);
+                CSR_BADV: badv <= (badv & ~csr_wmask) | (csr_wvalue & csr_wmask);
                 CSR_EENTRY: eentry_va <= eentry_next;
                 CSR_SAVE0: save0 <= (save0 & ~csr_wmask) | (csr_wvalue & csr_wmask);
                 CSR_SAVE1: save1 <= (save1 & ~csr_wmask) | (csr_wvalue & csr_wmask);

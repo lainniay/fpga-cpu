@@ -28,6 +28,7 @@ module WB_stage (
     output wire [31:0] wb_pc,
     output wire [ 5:0] wb_ecode,
     output wire [ 8:0] wb_esubcode,
+    output wire [31:0] wb_vaddr,
 
     // NOTE: ex8
     output wire flush,
@@ -61,8 +62,16 @@ module WB_stage (
     wire                        ms_ex_ertn;  // ex8
     wire                        ms_ex_syscall;  // ex8
     wire                        ex_int;
+    // NOTE: ex9 所有同步异常统一在 WB 提交.
+    wire ex_ale, ex_adef, ex_break, ex_ine;
+    wire [31:0] mem_vaddr;
 
     assign {
+        ex_ale,
+        mem_vaddr,
+        ex_adef,
+        ex_break,
+        ex_ine,
         ex_int,
         ms_pc,
         gr_we,
@@ -78,7 +87,7 @@ module WB_stage (
     } = ms_to_ws_bus_r;
 
     // NOTE: ex8, 控制 CSR 的 syscall 和 ertn 指令
-    assign wb_ex = ws_valid && (ms_ex_syscall | ex_int);
+    assign wb_ex = ws_valid && (ex_int | ex_adef | ms_ex_syscall | ex_break | ex_ine | ex_ale);
     assign ertn_flush = ws_valid && ms_ex_ertn && !wb_ex;
 
     // NOTE: ex8 
@@ -86,12 +95,14 @@ module WB_stage (
 
     assign wb_pc = ms_pc;
 
-    // NOTE: ex9 syscall 和 interrupt 是不同的异常来源
-    assign wb_ecode = ex_int ? 6'h00 : 6'h0b;
+    // NOTE: ex9 保留中断优先
+    assign wb_ecode = ex_int ? 6'h00 : ex_adef ? 6'h08 : ms_ex_syscall ? 6'h0b :
+                      ex_break ? 6'h0c : ex_ine ? 6'h0d : ex_ale ? 6'h09 : 6'h00;
+    assign wb_vaddr = ex_adef ? ms_pc : mem_vaddr;
     assign wb_esubcode = 9'b0;
 
     // NOTE: ex8
-    assign csr_re = ws_valid && ms_res_from_csr;
+    assign csr_re = ws_valid && ms_res_from_csr && !wb_ex;  //ex9
 
     // NOTE: ex8
     assign csr_we = ws_valid && ms_csr_we && !wb_ex;

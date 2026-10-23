@@ -68,8 +68,15 @@ module MEM_stage (
     wire [                 1:0] mem_size;
     wire                        mem_sign;
     wire                        ex_int;
+    // NOTE: ex9 同步异常传递和提前阻止年轻指令访存.
+    wire ex_ale, ex_adef, ex_break, ex_ine;
+    wire ms_ex = ex_adef | ex_syscall | ex_break | ex_ine | ex_ale;
 
     assign {
+        ex_ale,
+        ex_adef,
+        ex_break,
+        ex_ine,
         ex_int,
         ms_pc,
         mem_we,
@@ -112,18 +119,23 @@ module MEM_stage (
 
     // NOTE: ex8 csr 写数据取原 rd 值, ms_final_result 对 csr 指令是无效的
     assign ms_to_ws_bus = {
-        ex_int,  // [121]
-        ms_pc,  // [151:120]
-        gr_we,  // [119]
-        dest,  // [118:114]
-        ms_final_result,  // [113:82]
-        csr_wmask,  // [81:50]  // ex8
-        csr_addr,  // [49:36]  // ex8
-        csr_we,  // [35]  // ex8
-        res_from_csr,  // [34]  // ex8
-        ex_ertn,  // [33]  // ex8
-        ex_syscall,  // [32]  // ex8
-        ms_rkd_value  // [31:0]  // ex8 csr_wvalue
+        ex_ale,
+        ms_alu_result,
+        ex_adef,
+        ex_break,
+        ex_ine,
+        ex_int,
+        ms_pc,
+        gr_we,
+        dest,
+        ms_final_result,
+        csr_wmask,
+        csr_addr,
+        csr_we,
+        res_from_csr,
+        ex_ertn,
+        ex_syscall,
+        ms_rkd_value
     };
 
     always @(posedge clk) begin
@@ -144,11 +156,11 @@ module MEM_stage (
 
     // NOTE: ex2
     assign ms_valid        = ms_valid_r;
-    assign ms_gr_we        = gr_we;
+    assign ms_gr_we        = gr_we && !ms_ex;  // NOTE: ex9
     assign ms_dest         = dest;
 
     // NOTE: ex8 提前一拍通知 EXE 不要访存, ms_valid 防止 bubble 误报
-    assign ms_redirect     = ms_valid && (ex_syscall | ex_ertn | ex_int);
+    assign ms_redirect     = ms_valid && (ms_ex | ex_ertn | ex_int);
 
     // NOTE: ex3
     // NOTE: ex6 timing: 只前递已寄存的 ALU 结果; load 数据要等到 WB 才能前递,
