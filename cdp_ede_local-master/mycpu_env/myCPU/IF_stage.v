@@ -80,17 +80,20 @@ module IF_stage (
     wire rsp_valid, rsp_ready;
     // rsp_pc 并不是逻辑上必须的, 只是为了让 repsonse 带有身份信息
     wire [31:0] rsp_pc, rsp_inst;
-    // NOTE: 接入新任务的同一个沿即可接受请求, 不再先锁存一拍再发出
-    wire fs_accept = to_fs_valid && fs_allowin;
+
+    // 当前还有没有被 指令请求模块 接受的请求
     wire held_req_valid = fs_valid && req_pending;
-    wire new_req_valid = fs_accept && !next_ex_adef;
+    // 下一条指令可以开始请求
+    wire new_req_valid = to_fs_valid && fs_allowin && !next_ex_adef;
+    // 如果是当前的请求还没有被接受, 那么就继续请求当前的 pc, 否则就请求下一个 pc
     wire [31:0] req_pc = held_req_valid ? fs_pc : fetch_pc;
+
     assign req_valid = held_req_valid || new_req_valid;
     // 本拍请求被消费
     wire req_fire = req_valid && req_ready;
-    // NOTE: 只处理此前已接受的当前任务响应, 新请求的响应留待下一拍
-    // NOTE: 存储层须保持未消费的响应, 不能将新请求握手误认为旧请求完成
-    wire rsp_available = !req_pending;
+
+    // 响应被接受
+    wire req_accepted = !req_pending;
     // 本拍响应被消费
     wire rsp_fire = rsp_valid && rsp_ready;
 
@@ -116,12 +119,11 @@ module IF_stage (
     assign fs_to_ds_bus = {fs_pred_next_pc, ex_adef, fs_inst, fs_pc};
 
     // 当前指令没对齐, 那么直接启动
-    // 如果指令合法, 那么要求, 当前的请求被接受, 同时请求有效
-    assign fs_ready_go = ex_adef || (rsp_available && rsp_valid);
+    // 如果指令合法, 那么要求, 当前的响应有效, 而且被接受
+    assign fs_ready_go = ex_adef || (req_accepted && rsp_valid);
 
     assign fs_to_ds_valid = fs_valid && fs_ready_go && !fs_killed && !redirect;
-    assign rsp_ready = fs_valid && !ex_adef && rsp_available
-                    && (fs_killed || redirect || ds_allowin);
+    assign rsp_ready = fs_valid && !ex_adef && req_accepted && (fs_killed || redirect || ds_allowin);
 
     assign fs_allowin = !fs_valid || (fs_ready_go && ds_allowin);
     assign to_fs_valid = !reset && !redirect && !fs_killed;
@@ -161,12 +163,10 @@ module IF_stage (
                 req_pending <= 1'b0;
                 fs_killed   <= 1'b0;
             end
-            // NOTE: 同拍送旧接新时, 新任务信息优先于旧任务的清理
-            if (fs_accept) begin
+            if (to_fs_valid && fs_allowin) begin
                 fs_pc <= fetch_pc;
                 fs_pred_next_pc <= next_ex_adef ? seq_pc : next_pc;
                 ex_adef <= next_ex_adef;
-                // NOTE: 新请求当拍已被接受则无需重发, 否则保存为待接受请求
                 req_pending <= !next_ex_adef && !req_ready;
                 fs_killed <= 1'b0;
                 fetch_pc <= next_ex_adef ? seq_pc : next_pc;
