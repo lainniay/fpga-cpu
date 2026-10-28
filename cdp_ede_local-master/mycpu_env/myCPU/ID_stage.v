@@ -21,10 +21,11 @@ module ID_stage (
     input  wire                        fs_to_ds_valid,
     input  wire [`FS_TO_DS_BUS_WD-1:0] fs_to_ds_bus,
 
-    // NOTE: 跳转指令, ID -> IF
-    output wire [      `BR_BUS_WD-1:0] br_bus,
+    // NOTE: ID -> IF, 包含预测纠错信息和预测器更新信息
+    output wire [`BR_BUS_WD-1:0] br_bus,
+
     // NOTE: WB -> ID, 这是由于 Regfile 放在 ID, WB 写回需要交给 ID
-    input  wire [`WS_TO_RF_BUS_WD-1:0] ws_to_rf_bus,
+    input wire [`WS_TO_RF_BUS_WD-1:0] ws_to_rf_bus,
 
     // NOTE: ex2
     input wire [4:0] es_dest,
@@ -99,15 +100,14 @@ module ID_stage (
     assign ds_allowin     = !ds_valid || (ds_ready_go && es_allowin);
     assign ds_to_es_valid = ds_valid && ds_ready_go;
 
-    // NOTE: 由于 IF -> ID(通过 fs_to_ds_bus) 的信号不稳定
-    // NOTE: 因此需要先存放到 register 中
+
     reg  [`FS_TO_DS_BUS_WD-1:0] fs_to_ds_bus_r;
-    // NOTE: ID 阶段执行的指令
     wire [                31:0] ds_inst;
-    // NOTE: ID 阶段的 PC
     wire [                31:0] ds_pc;
     wire                        ex_adef;  // NOTE: ex9
-    assign {ex_adef, ds_inst, ds_pc} = fs_to_ds_bus_r;
+    wire [                31:0] ds_pred_next_pc;
+
+    assign {ds_pred_next_pc, ex_adef, ds_inst, ds_pc} = fs_to_ds_bus_r;
 
     always @(posedge clk) begin
         if (reset) begin
@@ -601,13 +601,24 @@ module ID_stage (
                         || inst_jirl
                         || inst_bl
                         || inst_b
-                       ) && ds_valid && ds_ready_go && !ex_int && !flush && !ex_adef;
+                       );
     // ex5
     assign br_target = (inst_beq || inst_bne || inst_blt || inst_bge
                         || inst_bltu || inst_bgeu || inst_bl || inst_b)
                        ? (ds_pc + br_offs) : /*inst_jirl*/ (rj_value + jirl_offs);
 
-    assign br_bus = {br_taken, br_target};
+    wire is_branch = inst_beq || inst_bne || inst_blt || inst_bge
+                   || inst_bltu || inst_bgeu || inst_jirl || inst_bl || inst_b;
+    wire [31:0] actual_next_pc = br_taken ? br_target : ds_pc + 32'd4;
+
+    wire resolve_valid = ds_to_es_valid && es_allowin && !reset && !flush
+                      && !ex_adef && !ex_int && !ex_ine && !ex_break
+                      && !ex_syscall && !ex_ertn;
+    wire mispredict = resolve_valid && (ds_pred_next_pc != actual_next_pc);
+
+    wire upd_valid = resolve_valid && is_branch;
+
+    assign br_bus = {mispredict, actual_next_pc, upd_valid, ds_pc, br_taken, br_target};
 
 
     //NOTE : 将 ID 信息传入到 EXE 阶段

@@ -27,70 +27,155 @@ module IF_stage (
     input  wire [31:0] inst_sram_rdata
 );
 
-    reg  fs_valid;
+    reg fs_valid;
     wire fs_ready_go;
     wire fs_allowin;
     wire to_fs_valid;
 
-    wire [31:0] seq_pc, next_pc;
-    wire br_taken;
-    wire [31:0] br_target;
-    assign {br_taken, br_target} = br_bus;
+    wire mispredict;
+    wire [31:0] actual_next_pc;
+    wire upd_valid, upd_taken;
+    wire [31:0] upd_pc, upd_target;
+    assign {mispredict, actual_next_pc, upd_valid, upd_pc, upd_taken, upd_target} = br_bus;
 
-    // fs_pc 是 IF 实际上的 PC
+    // NOTE: ex8 异常重定向优先于分支纠错
+    wire redirect = flush || mispredict;
+    wire [31:0] redirect_target = flush ? redirect_pc : actual_next_pc;
+
+    // 下一条 pc, 实际上向
+    reg [31:0] fetch_pc;
+    // if 阶段的 pc
     reg [31:0] fs_pc;
-    // NOTE: ex9 pre-IF检查实际请求地址, 标志与PC在同一时钟沿锁存
+    // if 猜测的下一个 pc
+    reg [31:0] fs_pred_next_pc;
+
+    // NOTE: 当前任务的请求尚未被存储层接受, 需要保持请求直到握手
+    reg req_pending;
+    // 当前的 if 取值作废
+    reg fs_killed;
+
     reg ex_adef;
-    wire next_ex_adef = |next_pc[1:0];
-    // NOTE: ex9禁止取指时SRAM保留旧数据, 不能再将其译成有副作用的指令
-    wire [31:0] fs_inst = ex_adef ? 32'b0 : inst_sram_rdata;
-    assign fs_to_ds_bus   = {ex_adef, fs_inst, fs_pc};
+    wire next_ex_adef = |fetch_pc[1:0];
 
-    assign to_fs_valid    = ~reset;
-    // NOTE: 正常情况下 IF 的下一个 PC
-    assign seq_pc         = fs_pc + 32'h4;
-    // NOTE: ex8 重定向优先级最高
-    // NOTE: next_pc 是 IF 的下一个 PC
-    assign next_pc        = flush ? redirect_pc : br_taken ? br_target : seq_pc;
+    wire pred_hit, pred_taken;
+    wire [31:0] pred_target;
+    wire [31:0] seq_pc = fetch_pc + 32'd4;
+    wire [31:0] next_pc = pred_hit && pred_taken ? pred_target : seq_pc;
 
-    assign fs_ready_go    = 1'b1;
-    assign fs_allowin     = !fs_valid || (fs_ready_go && ds_allowin);
-    // NOTE: ex8 重定向那一拍, 旧 PC 取回的那条要丢掉
-    assign fs_to_ds_valid = fs_valid && fs_ready_go && !br_taken && !flush;
+    branch_predictor u_branch_predictor (
+        .clk        (clk),
+        .reset      (reset),
+        .query_pc   (fetch_pc),
+        .pred_hit   (pred_hit),
+        .pred_taken (pred_taken),
+        .pred_target(pred_target),
+        .upd_valid  (upd_valid),
+        .upd_pc     (upd_pc),
+        .upd_taken  (upd_taken),
+        .upd_target (upd_target)
+    );
 
+    // _valid 表示有请求, _ready 表示接受请求
+    wire req_valid, req_ready;
+    wire rsp_valid, rsp_ready;
+    // rsp_pc 并不是逻辑上必须的, 只是为了让 repsonse 带有身份信息
+    wire [31:0] rsp_pc, rsp_inst;
+    // NOTE: 接入新任务的同一个沿即可接受请求, 不再先锁存一拍再发出
+    wire fs_accept = to_fs_valid && fs_allowin;
+    wire held_req_valid = fs_valid && req_pending;
+    wire new_req_valid = fs_accept && !next_ex_adef;
+    wire [31:0] req_pc = held_req_valid ? fs_pc : fetch_pc;
+    assign req_valid = held_req_valid || new_req_valid;
+    // 本拍请求被消费
+    wire req_fire = req_valid && req_ready;
+    // NOTE: 只处理此前已接受的当前任务响应, 新请求的响应留待下一拍
+    // NOTE: 存储层须保持未消费的响应, 不能将新请求握手误认为旧请求完成
+    wire rsp_available = !req_pending;
+    // 本拍响应被消费
+    wire rsp_fire = rsp_valid && rsp_ready;
+
+    // NOTE: 提前发送下一地址, 背压时改用锁存的 fs_pc 保持同一个请求
+    inst_fetch_mem u_inst_fetch_mem (
+        .clk            (clk),
+        .reset          (reset),
+        .req_valid      (req_valid),
+        .req_pc         (req_pc),
+        .req_ready      (req_ready),
+        .rsp_valid      (rsp_valid),
+        .rsp_pc         (rsp_pc),
+        .rsp_inst       (rsp_inst),
+        .rsp_ready      (rsp_ready),
+        .inst_sram_en   (inst_sram_en),
+        .inst_sram_we   (inst_sram_we),
+        .inst_sram_addr (inst_sram_addr),
+        .inst_sram_wdata(inst_sram_wdata),
+        .inst_sram_rdata(inst_sram_rdata)
+    );
+
+    wire [31:0] fs_inst = ex_adef ? 32'b0 : rsp_inst;
+    assign fs_to_ds_bus = {fs_pred_next_pc, ex_adef, fs_inst, fs_pc};
+
+    // 当前指令没对齐, 那么直接启动
+    // 如果指令合法, 那么要求, 当前的请求被接受, 同时请求有效
+    assign fs_ready_go = ex_adef || (rsp_available && rsp_valid);
+
+    assign fs_to_ds_valid = fs_valid && fs_ready_go && !fs_killed && !redirect;
+    assign rsp_ready = fs_valid && !ex_adef && rsp_available
+                    && (fs_killed || redirect || ds_allowin);
+
+    assign fs_allowin = !fs_valid || (fs_ready_go && ds_allowin);
+    assign to_fs_valid = !reset && !redirect && !fs_killed;
+    // 当前的取值结束
+    wire fs_done = fs_valid && (ex_adef ? (ds_allowin || redirect || fs_killed) : rsp_fire);
+
+    // NOTE: 有效位按流水线握手更新, 作废响应则独立释放, 不依赖 ID 是否接收
     always @(posedge clk) begin
         if (reset) begin
             fs_valid <= 1'b0;
         end
-        // NOTE: ex8 重定向的同时会更新 sram 读取地址, fs 不需要停顿, 因此下一拍也是 valid
-        else if (flush || fs_allowin) begin
+        else if (fs_done && (fs_killed || redirect)) begin
+            fs_valid <= 1'b0;
+        end
+        else if (fs_allowin) begin
             fs_valid <= to_fs_valid;
         end
     end
 
     always @(posedge clk) begin
         if (reset) begin
-            fs_pc   <= 32'h1bfffffc;
-            ex_adef <= 1'b0;  //ex9
+            req_pending <= 1'b0;
+            fs_killed <= 1'b0;
+            fetch_pc <= 32'h1c000000;
+            fs_pc <= 32'h1bfffffc;
+            fs_pred_next_pc <= 32'h1c000000;
+            ex_adef <= 1'b0;
         end
-        // NOTE: ex8 flush 更新优先于 allowin
-        else if (flush) begin
-            fs_pc   <= redirect_pc;
-            ex_adef <= next_ex_adef;  //ex9
-        end
-        else if (to_fs_valid && fs_allowin) begin
-            fs_pc   <= next_pc;
-            ex_adef <= next_ex_adef;  //ex9
+        else begin
+            if (req_fire) begin
+                req_pending <= 1'b0;
+            end
+            if (redirect && fs_valid) begin
+                fs_killed <= 1'b1;
+            end
+            if (fs_done) begin
+                req_pending <= 1'b0;
+                fs_killed   <= 1'b0;
+            end
+            // NOTE: 同拍送旧接新时, 新任务信息优先于旧任务的清理
+            if (fs_accept) begin
+                fs_pc <= fetch_pc;
+                fs_pred_next_pc <= next_ex_adef ? seq_pc : next_pc;
+                ex_adef <= next_ex_adef;
+                // NOTE: 新请求当拍已被接受则无需重发, 否则保存为待接受请求
+                req_pending <= !next_ex_adef && !req_ready;
+                fs_killed <= 1'b0;
+                fetch_pc <= next_ex_adef ? seq_pc : next_pc;
+            end
+            if (redirect) begin
+                fetch_pc <= redirect_target;
+            end
         end
     end
-
-    // NOTE: ex8 重定向的下一拍是重新取址, 因此 flush 这一拍仍然需要读取 sram
-    // NOTE: ex9 由于访存会提前一个周期, 因此, 需要提前检查下一个 pc, 从而避免发出访存
-    assign inst_sram_en    = ((to_fs_valid && fs_allowin) || flush) && !next_ex_adef;
-    // NOTE: IF 不写入 SRAM
-    assign inst_sram_we    = 4'h0;
-    assign inst_sram_addr  = next_pc;
-    assign inst_sram_wdata = 32'b0;
 
 endmodule
 
