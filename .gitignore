@@ -5,8 +5,8 @@
 .stignore
 build
 
-# Course reference material (videos/PDFs/zips, ~826MB, not source code).
-docs/
+docs/00*
+docs/01*
 
 # Selected test images are copied from for_test_obj/.
 cdp_ede_local-master/mycpu_env/func/obj/
