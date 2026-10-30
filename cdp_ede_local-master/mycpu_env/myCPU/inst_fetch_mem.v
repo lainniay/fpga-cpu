@@ -2,7 +2,7 @@
 `define INST_FETCH_MEM_V
 
 // NOTE: 取指存储层, 只封装 ICache 和 SRAM 适配器, 不增加寄存器或改变握手时序
-// NOTE: 子模块保留空实现, 后续分别完成缓存和 SRAM 访问逻辑
+// NOTE: ICache 负责查询/填充/响应保持, adapter 负责单字同步 SRAM 读取
 module inst_fetch_mem (
     input wire clk,
     input wire reset,
@@ -26,8 +26,6 @@ module inst_fetch_mem (
     input  wire [31:0] inst_sram_rdata
 );
 
-    // NOTE: 缓存填充使用的内部访存接口, 不再暴露给 IF
-    // NOTE: 已接受请求的响应必须由 ICache 接收, 此处没有响应背压
     wire mem_req_valid, mem_req_ready, mem_rsp_valid;
     wire [31:0] mem_req_addr, mem_rsp_data;
 
