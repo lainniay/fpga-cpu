@@ -8,7 +8,10 @@
 `define UART_STAT_TX_READY 0
 `define UART_STAT_RX_VALID 1
 
-module uart_mmio (
+module uart_mmio #(
+    parameter [15:0] DIV_9600   = 16'd10417,
+    parameter [15:0] DIV_115200 = 16'd868
+) (
     input wire clk,
     input wire reset,
 
@@ -52,7 +55,10 @@ module uart_mmio (
                       && we[0]
                       && !tx_busy;
 
-    uart_tx u_tx(
+    uart_tx #(
+        .DIV_9600   (DIV_9600),
+        .DIV_115200 (DIV_115200)
+    ) u_tx (
         .clk        (clk),
         .reset      (reset),
         .baud_sel   (2'd1),
@@ -62,7 +68,10 @@ module uart_mmio (
         .uart_tx    (uart_tx)
     );
 
-    uart_rx u_rx (
+    uart_rx #(
+        .DIV_9600   (DIV_9600),
+        .DIV_115200 (DIV_115200)
+    ) u_rx (
         .clk        (clk),
         .reset      (reset),
         .baud_sel   (2'd1),
