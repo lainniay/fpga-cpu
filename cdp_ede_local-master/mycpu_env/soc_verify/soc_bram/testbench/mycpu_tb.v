@@ -54,7 +54,10 @@ wire [7 :0] switch;
 wire [3 :0] btn_key_col;
 wire [3 :0] btn_key_row;
 wire [1 :0] btn_step;
+wire        uart_rx;
+wire        uart_tx;
 assign switch      = 8'hff;
+assign uart_rx     = 1'b1;
 assign btn_key_row = 4'd0;
 assign btn_step    = 2'd3;
 
@@ -72,6 +75,10 @@ soc_lite_top #(.SIMULATION(1'b1)) soc_lite
 (
        .resetn      (resetn     ), 
        .clk         (clk        ),
+
+        //------uart-------
+        .uart_rx    (uart_rx    ),
+        .uart_tx    (uart_tx    ),
     
         //------gpio-------
         .num_csn    (num_csn    ),
