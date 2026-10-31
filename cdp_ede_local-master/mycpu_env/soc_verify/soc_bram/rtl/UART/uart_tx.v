@@ -24,8 +24,70 @@ module uart_tx (
     output wire       uart_tx
 );
 
-    // todo!
+//8N1
+reg [7:0] data_reg;
 
+
+reg [1:0] state;
+reg [13:0] baud_cnt;
+reg [13:0] baud_div;
+reg [2:0] bit_cnt;
+
+always @(posedge clk) begin
+    if(reset) begin
+        state<=`UTX_IDLE;
+        bit_cnt<=3'b0;
+        baud_cnt<=14'b0;
+        baud_div<=14'b0;
+        data_reg<=8'b0;
+    end
+    else begin
+        case(state)
+            `UTX_IDLE:
+            if(tx_start==1'b1 && tx_busy==1'b0) begin
+                baud_div<=(baud_sel==2'b0) ? `UART_DIV_9600 :`UART_DIV_115200;
+                baud_cnt<=14'b0;
+                data_reg<=tx_data;
+                state<=`UTX_START;
+            end
+            `UTX_START:begin
+                if(baud_cnt==baud_div-1) begin
+                    baud_cnt<=14'b0;
+                    bit_cnt<=3'b0;
+                    state<=`UTX_DATA;
+                end
+                else baud_cnt<=baud_cnt+1;
+            end
+            `UTX_DATA:begin
+                if(baud_cnt==baud_div-1)begin
+                    bit_cnt<=bit_cnt+1;
+                    if(bit_cnt==3'b111) begin
+                    baud_cnt<=14'b0;
+                    state<=`UTX_STOP;
+                    end
+                    else baud_cnt<=14'b0;
+                end
+                else
+                baud_cnt<=baud_cnt+1;
+            end
+            `UTX_STOP:begin
+                if(baud_cnt==baud_div-1) begin
+                    baud_cnt<=14'b0;
+                    state<=`UTX_IDLE;
+                end
+                else
+                baud_cnt<=baud_cnt+1;
+            end
+            default: begin
+                    state<=`UTX_IDLE;
+            end
+        endcase
+        end
+    end
+
+assign tx_busy=~(state==`UTX_IDLE);
+assign uart_tx= (state==`UTX_START) ? 1'b0:
+(state==`UTX_DATA) ? data_reg[bit_cnt] : 1'b1;
 endmodule
 
 `endif
