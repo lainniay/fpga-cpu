@@ -6,7 +6,10 @@
 `define URX_DATA 2'd2 // 采数据，收完d7进入 3
 `define URX_STOP 2'd3 // 等到停止位中心检查电平
 
-module uart_rx (
+module uart_rx #(
+    parameter [15:0] DIV_9600   = 16'd10417,
+    parameter [15:0] DIV_115200 = 16'd868
+) (
     input wire clk,
     input wire reset,
 
@@ -15,9 +18,6 @@ module uart_rx (
     output wire       rx_valid, // 表示rx_data是否是本次有效接受结果
     output wire [7:0] rx_data   // 接收成功的8位字节
 );
-
-    localparam [15:0] DIV_9600 = 16'd10417;
-    localparam [15:0] DIV_115200 = 16'd868;
 
     (* ASYNC_REG = "TRUE" *) reg rx_meta;
     (* ASYNC_REG = "TRUE" *) reg rx_sync;

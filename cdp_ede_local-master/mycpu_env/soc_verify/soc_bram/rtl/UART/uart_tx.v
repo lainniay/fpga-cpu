@@ -13,7 +13,10 @@
 `define UTX_DATA 2'd2
 `define UTX_STOP 2'd3
 
-module uart_tx (
+module uart_tx #(
+    parameter [15:0] DIV_9600   = `UART_DIV_9600,
+    parameter [15:0] DIV_115200 = `UART_DIV_115200
+) (
     input wire clk,
     input wire reset,
 
@@ -45,7 +48,7 @@ always @(posedge clk) begin
         case(state)
             `UTX_IDLE:
             if(tx_start==1'b1 && tx_busy==1'b0) begin
-                baud_div<=(baud_sel==2'b0) ? `UART_DIV_9600 :`UART_DIV_115200;
+                baud_div<=(baud_sel==2'b0) ? DIV_9600 : DIV_115200;
                 baud_cnt<=14'b0;
                 data_reg<=tx_data;
                 state<=`UTX_START;

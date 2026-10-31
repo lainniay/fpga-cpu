@@ -64,10 +64,17 @@ THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //   at this time, cpu_clk/timer_clk frequency are both 100MHz, same as clk.
 `define SIMU_USE_PLL 0 //set 0 to speed up simulation
 
-module soc_lite_top #(parameter SIMULATION=1'b0)
+module soc_lite_top #(
+    parameter SIMULATION = 1'b0,
+    parameter INST_RAM_ADDR_MSB = 19
+)
 (
     input  wire        resetn, 
     input  wire        clk,
+
+    //------uart-------
+    input  wire        uart_rx,
+    output wire        uart_tx,
 
     //------gpio-------
     output wire [15:0] led,
@@ -90,11 +97,16 @@ wire [31:0] debug_wb_rf_wdata;
 //clk and resetn
 wire cpu_clk;
 wire timer_clk;
-reg cpu_resetn;
-always @(posedge cpu_clk)
+(* ASYNC_REG = "TRUE" *) reg [1:0] cpu_resetn_sync;
+wire cpu_resetn;
+always @(posedge cpu_clk or negedge resetn)
 begin
-    cpu_resetn <= resetn;
+    if (!resetn)
+        cpu_resetn_sync <= 2'b00;
+    else
+        cpu_resetn_sync <= {cpu_resetn_sync[0], 1'b1};
 end
+assign cpu_resetn = cpu_resetn_sync[1];
 generate if(SIMULATION && `SIMU_USE_PLL==0)
 begin: speedup_simulation
     assign cpu_clk   = clk;
@@ -137,6 +149,38 @@ wire [31:0] conf_addr;
 wire [31:0] conf_wdata;
 wire [31:0] conf_rdata;
 
+//uart
+localparam [31:0] UART_ADDR_BASE     = 32'h1faf_1000;
+localparam [31:0] UART_ADDR_MASK     = 32'h1fff_ff00;
+localparam [15:0] UART_DIV_9600_50M  = 16'd5208;
+localparam [15:0] UART_DIV_115200_50M = 16'd434;
+
+wire        uart_sel;
+wire [31:0] uart_rdata;
+wire [31:0] bridge_rdata;
+wire        cpu_data_en_gated;
+wire        uart_read;
+reg         uart_read_sel_r;
+reg  [31:0] uart_rdata_r;
+
+assign uart_sel = (cpu_data_addr & UART_ADDR_MASK) == UART_ADDR_BASE;
+assign uart_read = uart_sel && cpu_data_en && (cpu_data_we == 4'b0000);
+assign cpu_data_en_gated = cpu_data_en && !uart_sel;
+assign cpu_data_rdata = uart_read_sel_r ? uart_rdata_r : bridge_rdata;
+
+always @(posedge cpu_clk) begin
+    if (!cpu_resetn) begin
+        uart_read_sel_r <= 1'b0;
+        uart_rdata_r <= 32'b0;
+    end
+    else begin
+        uart_read_sel_r <= uart_read;
+        if (uart_read) begin
+            uart_rdata_r <= uart_rdata;
+        end
+    end
+end
+
 //cpu
 mycpu_top cpu(
     .clk              (cpu_clk   ),
@@ -167,7 +211,7 @@ inst_ram inst_ram
     .clka  (cpu_clk            ),   
     .ena   (cpu_inst_en        ),
     .wea   (cpu_inst_we        ),   //3:0
-    .addra (cpu_inst_addr[19:2]),   //17:0
+    .addra (cpu_inst_addr[INST_RAM_ADDR_MSB:2]),
     .dina  (cpu_inst_wdata     ),   //31:0
     .douta (cpu_inst_rdata     )    //31:0
 );
@@ -176,11 +220,11 @@ bridge_1x2 bridge_1x2(
     .clk             ( cpu_clk         ), // i, 1                 
     .resetn          ( cpu_resetn      ), // i, 1                 
 
-    .cpu_data_en     ( cpu_data_en     ), // i, 4                 
+    .cpu_data_en     ( cpu_data_en_gated), // i, 4
     .cpu_data_we     ( cpu_data_we     ), // i, 4                 
     .cpu_data_addr   ( cpu_data_addr   ), // i, 32                
     .cpu_data_wdata  ( cpu_data_wdata  ), // i, 32                
-    .cpu_data_rdata  ( cpu_data_rdata  ), // o, 32                
+    .cpu_data_rdata  ( bridge_rdata   ), // o, 32
 
     .data_sram_en    ( data_sram_en    ), // o, 4                 
     .data_sram_we    ( data_sram_we    ), // o, 4                 
@@ -204,6 +248,23 @@ data_ram data_ram
     .addra (data_sram_addr[17:2]),   //15:0
     .dina  (data_sram_wdata     ),   //31:0
     .douta (data_sram_rdata     )    //31:0
+);
+
+//uart
+uart_mmio #(
+    .DIV_9600   (UART_DIV_9600_50M),
+    .DIV_115200 (UART_DIV_115200_50M)
+) u_uart (
+    .clk        ( cpu_clk        ),
+    .reset      ( ~cpu_resetn    ),
+    .sel        ( uart_sel       ),
+    .we         ( cpu_data_we    ),
+    .commit     ( cpu_data_en    ),
+    .wdata      ( cpu_data_wdata ),
+    .addr_off   ( cpu_data_addr[7:0] ),
+    .rdata      ( uart_rdata     ),
+    .uart_rx    ( uart_rx        ),
+    .uart_tx    ( uart_tx        )
 );
 
 //confreg
